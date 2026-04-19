@@ -1,4 +1,4 @@
-name: Build Android APK (Final Fix v2)
+name: Build Android APK (Final Fix v3)
 
 on:
   push:
@@ -17,20 +17,20 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          # 1. 기본 패키지 설치
+          # 버전 충돌 방지 및 누락된 부품(react-is) 포함 설치
           npm install --legacy-peer-deps
-          # 2. 에러가 났던 누락된 부품(react-is) 강제 설치 ★핵심 포인트★
           npm install react-is --legacy-peer-deps
-          # 3. 안드로이드 변환 도구 설치
           npm install @capacitor/core @capacitor/cli @capacitor/android --legacy-peer-deps
 
       - name: Build Web Project
         run: npm run build
 
-      - name: Capacitor Init & Android Add
-        run: |
-          npx cap init "GeonmyeongHRM" "com.geonmyeong.hrm" --web-dir dist --confirm
-          npx cap add android
+      - name: Capacitor Init
+        # 에러가 났던 --confirm 옵션을 제거했습니다.
+        run: npx cap init "GeonmyeongHRM" "com.geonmyeong.hrm" --web-dir dist
+
+      - name: Add Android Platform
+        run: npx cap add android
 
       - name: Copy Web to Android
         run: npx cap copy android
@@ -44,6 +44,7 @@ jobs:
       - name: Build APK
         run: |
           cd android
+          # 빌드 권한 부여 및 실행
           chmod +x gradlew
           ./gradlew assembleRelease
 
