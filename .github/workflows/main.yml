@@ -1,4 +1,4 @@
-name: Build Android APK (Final Fix v3)
+name: Build Android APK (Final Fix v4)
 
 on:
   push:
@@ -17,7 +17,6 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          # 버전 충돌 방지 및 누락된 부품(react-is) 포함 설치
           npm install --legacy-peer-deps
           npm install react-is --legacy-peer-deps
           npm install @capacitor/core @capacitor/cli @capacitor/android --legacy-peer-deps
@@ -26,7 +25,6 @@ jobs:
         run: npm run build
 
       - name: Capacitor Init
-        # 에러가 났던 --confirm 옵션을 제거했습니다.
         run: npx cap init "GeonmyeongHRM" "com.geonmyeong.hrm" --web-dir dist
 
       - name: Add Android Platform
@@ -35,16 +33,15 @@ jobs:
       - name: Copy Web to Android
         run: npx cap copy android
 
-      - name: Set up JDK 17
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
+          java-version: '21' # 17에서 21로 업데이트했습니다!
           distribution: 'temurin'
 
       - name: Build APK
         run: |
           cd android
-          # 빌드 권한 부여 및 실행
           chmod +x gradlew
           ./gradlew assembleRelease
 
