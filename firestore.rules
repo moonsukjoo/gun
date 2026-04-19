@@ -1,0 +1,176 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Fields: uid, email, displayName, role, department, position, phoneNumber, joinedAt, isActive
+    //
+    // Collection: attendance
+    // Fields: uid, date, clockIn, clockOut, status, memo
+    //
+    // Collection: leaveRequests
+    // Fields: uid, type, startDate, endDate, reason, status, approvedBy, createdAt
+    //
+    // Collection: notices
+    // Fields: title, content, authorUid, authorName, targetDept, createdAt, isImportant
+    // Collection: departments
+    // Fields: name, createdAt
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function hasRole(roles) {
+      return isAuthenticated() && getUserData().role in roles;
+    }
+
+    function isManager() {
+      return isAuthenticated() && getUserData().role != 'EMPLOYEE';
+    }
+
+    function isHRManager() {
+      return isAuthenticated() && 
+             (getUserData().role in ['CEO', 'DIRECTOR', 'GENERAL_AFFAIRS', 'GENERAL_MANAGER', 'CLERK', 'SAFETY_MANAGER'] ||
+              (request.auth.token.email == "tjrwnfjqm1@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isSafetyManager() {
+      return isAuthenticated() && getUserData().role == 'SAFETY_MANAGER';
+    }
+
+    function isTeamLeader(deptId) {
+      return isAuthenticated() && getUserData().role == 'TEAM_LEADER' && getUserData().departmentId == deptId;
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'role', 'displayName']) &&
+             data.uid is string &&
+             data.email is string &&
+             data.role in ['CEO', 'DIRECTOR', 'GENERAL_AFFAIRS', 'GENERAL_MANAGER', 'CLERK', 'SAFETY_MANAGER', 'TEAM_LEADER', 'EMPLOYEE'] &&
+             (!('joinedAt' in data) || data.joinedAt is string) &&
+             (!('resignedAt' in data) || data.resignedAt is string);
+    }
+
+    function isValidAttendance(data) {
+      return data.keys().hasAll(['uid', 'date', 'clockIn']) &&
+             data.uid is string &&
+             data.date is string &&
+             (!('clockOut' in data) || data.clockOut is string) &&
+             (!('healthStatus' in data) || data.healthStatus in ['GOOD', 'NORMAL', 'BAD']);
+    }
+
+    function isValidAccidentCase(data) {
+      return data.keys().hasAll(['title', 'date', 'location', 'description', 'severity', 'type', 'reportedByUid', 'createdAt']) &&
+             data.title is string &&
+             data.reportedByUid is string &&
+             data.severity in ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] &&
+             data.type in ['SAFE', 'INCIDENT', 'ACCIDENT', 'OTHER'];
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll(['uid', 'title', 'message', 'type', 'isRead', 'createdAt']) &&
+             data.uid is string &&
+             data.type in ['HEALTH_CHECK', 'NOTICE', 'SYSTEM', 'LEAVE_REMINDER', 'COUPON', 'EMERGENCY'] &&
+             data.isRead is bool;
+    }
+
+    function isValidPraiseCoupon(data) {
+      return data.keys().hasAll(['senderUid', 'receiverUid', 'points', 'reason', 'location', 'date', 'time', 'createdAt']) &&
+             data.senderUid is string &&
+             data.receiverUid is string &&
+             data.points is number && data.points > 0 &&
+             data.reason is string && data.reason.size() < 1000 &&
+             data.location is string && data.location.size() < 200 &&
+             data.date is string &&
+             data.time is string;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{uid} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (isOwner(uid) || isHRManager()) && isValidUser(request.resource.data);
+      allow update: if isAuthenticated() && (isOwner(uid) || isHRManager());
+      allow delete: if isHRManager();
+    }
+
+    match /attendance/{attendanceId} {
+      allow read: if isAuthenticated() && (isOwner(resource.data.uid) || isHRManager() || isTeamLeader(resource.data.departmentId));
+      allow create: if isAuthenticated() && isOwner(request.resource.data.uid) && isValidAttendance(request.resource.data);
+      allow update: if isAuthenticated() && (isOwner(resource.data.uid) || isHRManager());
+    }
+
+    match /leaveRequests/{requestId} {
+      allow read: if isAuthenticated() && (isOwner(resource.data.uid) || isHRManager() || isTeamLeader(getUserData().departmentId));
+      allow create: if isAuthenticated() && isOwner(request.resource.data.uid);
+      allow update: if isAuthenticated() && (isOwner(resource.data.uid) || isHRManager());
+    }
+
+    match /accidentCases/{caseId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidAccidentCase(request.resource.data);
+      allow update, delete: if isAuthenticated() && (isHRManager() || isSafetyManager() || request.auth.uid == resource.data.reportedByUid);
+    }
+
+    match /notices/{noticeId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isHRManager();
+      allow update, delete: if isAuthenticated() && (isHRManager() && request.auth.uid == resource.data.authorUid);
+    }
+
+    match /departments/{departmentId} {
+      allow read: if isAuthenticated();
+      allow write: if isHRManager();
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() && isOwner(resource.data.uid);
+      allow create: if isAuthenticated(); // Allow users to send health check notifications to managers
+      allow update: if isAuthenticated() && isOwner(resource.data.uid) && 
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead']);
+      allow delete: if isAuthenticated() && isOwner(resource.data.uid);
+    }
+
+    match /lottoHistory/{historyId} {
+      allow read: if isAuthenticated() && isOwner(resource.data.uid);
+      allow create: if isAuthenticated() && isOwner(request.resource.data.uid);
+      allow delete: if isAuthenticated() && isOwner(resource.data.uid);
+    }
+
+    match /emergencyLogs/{logId} {
+      allow read: if isAuthenticated() && (isHRManager() || isSafetyManager());
+      allow create: if isAuthenticated() && isOwner(request.resource.data.uid);
+    }
+
+    match /praiseCoupons/{couponId} {
+      allow read: if isAuthenticated() && (isOwner(resource.data.receiverUid) || isOwner(resource.data.senderUid) || isHRManager());
+      allow create: if isAuthenticated() && (getUserData().role == 'CEO' || getUserData().role == 'SAFETY_MANAGER') && isValidPraiseCoupon(request.resource.data);
+    }
+
+    match /settings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isHRManager();
+    }
+  }
+}
