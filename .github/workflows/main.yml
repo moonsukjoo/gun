@@ -1,4 +1,4 @@
-name: Build Android APK (Web to App)
+name: Build Android APK from AI Studio Web
 
 on:
   push:
@@ -15,14 +15,18 @@ jobs:
         with:
           node-version: 18
 
-      - name: Install Dependencies
+      - name: Install Web Dependencies
         run: |
           npm install
+          # 앱 껍데기를 씌워주는 도구(Capacitor) 설치
           npm install @capacitor/core @capacitor/cli @capacitor/android
-          npx cap init "GeonmyeongHRM" "com.geonmyeong.hrm" --web-dir dist
 
-      - name: Build Web Project
+      - name: Build Web Project (Vite)
         run: npm run build
+
+      - name: Initialize Capacitor
+        run: |
+          npx cap init "GeonmyeongHRM" "com.geonmyeong.hrm" --web-dir dist
 
       - name: Add Android Platform
         run: |
