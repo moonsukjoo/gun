@@ -1,0 +1,327 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User profile with RBAC roles: CEO(사장), DIRECTOR(소장), GENERAL_AFFAIRS(총무), GENERAL_MANAGER(실장), CLERK(서무), SAFETY_MANAGER(안전관리자), TEAM_LEADER(팀장), EMPLOYEE(일반사원)",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "employeeId": { "type": "string", "description": "Employee ID (e.g., x66626)" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "role": { 
+          "type": "string", 
+          "enum": ["CEO", "DIRECTOR", "GENERAL_AFFAIRS", "GENERAL_MANAGER", "CLERK", "SAFETY_MANAGER", "TEAM_LEADER", "EMPLOYEE"] 
+        },
+        "departmentId": { "type": "string" },
+        "departmentName": { "type": "string" },
+        "position": { "type": "string" },
+        "jobRole": { "type": "string" },
+        "workplace": { "type": "string" },
+        "phoneNumber": { "type": "string" },
+        "annualLeaveBalance": { "type": "number", "description": "Remaining annual leave days" },
+        "points": { "type": "number", "description": "Praise points (1 point = 5000 KRW)" },
+        "joinedAt": { "type": "string", "format": "date-time" },
+        "resignedAt": { "type": "string", "format": "date-time" },
+        "isActive": { "type": "boolean" },
+        "hasCustomPin": { "type": "boolean", "description": "Whether the user has set a custom PIN/password" },
+        "lastPinChange": { "type": "string", "format": "date-time" },
+        "permissions": { "type": "array", "items": { "type": "string" }, "description": "Dynamic permissions: notice_mgmt, accident_mgmt, leave_mgmt, dept_mgmt, employee_mgmt, praise_coupon" },
+        "safetyScore": { "type": "number", "description": "Safety performance score starting at 100" },
+        "safetyScoreLastUpdate": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role", "displayName"]
+    },
+    "SafetyScoreLog": {
+      "title": "Safety Score Log",
+      "description": "Log of safety score adjustments",
+      "type": "object",
+      "properties": {
+        "targetUid": { "type": "string" },
+        "targetName": { "type": "string" },
+        "adminUid": { "type": "string" },
+        "adminName": { "type": "string" },
+        "adminRole": { "type": "string" },
+        "scoreDelta": { "type": "number" },
+        "previousScore": { "type": "number" },
+        "newScore": { "type": "number" },
+        "reason": { "type": "string" },
+        "type": { "type": "string", "enum": ["PENALTY", "REWARD"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["targetUid", "adminUid", "scoreDelta", "previousScore", "newScore", "type", "createdAt"]
+    },
+    "PraiseCoupon": {
+      "title": "Praise Coupon",
+      "description": "Coupon given to employees for praise",
+      "type": "object",
+      "properties": {
+        "senderUid": { "type": "string" },
+        "senderName": { "type": "string" },
+        "senderRole": { "type": "string" },
+        "receiverUid": { "type": "string" },
+        "receiverName": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "time": { "type": "string" },
+        "location": { "type": "string" },
+        "reason": { "type": "string" },
+        "points": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["senderUid", "receiverUid", "points", "createdAt"]
+    },
+    "Attendance": {
+      "title": "Attendance Log",
+      "description": "Daily clock-in and clock-out logs",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "clockIn": { "type": "string", "format": "date-time" },
+        "clockOut": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["PRESENT", "LATE", "ABSENT", "LEAVE"] },
+        "healthStatus": { "type": "string", "enum": ["GOOD", "NORMAL", "BAD"] },
+        "workHours": { "type": "number", "description": "Total hours including overtime" },
+        "overtimeHours": { "type": "number", "description": "Overtime hours" },
+        "memo": { "type": "string" }
+      },
+      "required": ["uid", "date", "clockIn"]
+    },
+    "AccidentCase": {
+      "title": "Accident Case",
+      "description": "Reported safety accidents and cases",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "location": { "type": "string" },
+        "description": { "type": "string" },
+        "severity": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+        "type": { "type": "string", "enum": ["SAFE", "INCIDENT", "ACCIDENT", "OTHER"] },
+        "measures": { "type": "string" },
+        "reportedByUid": { "type": "string" },
+        "reportedBy": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "date", "location", "description", "severity", "type", "reportedByUid", "createdAt"]
+    },
+    "LeaveRequest": {
+      "title": "Leave Request",
+      "description": "Requests for vacation or leave",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "type": { "type": "string", "enum": ["ANNUAL", "SICK", "SPECIAL", "OTHER"] },
+        "startDate": { "type": "string", "format": "date" },
+        "endDate": { "type": "string", "format": "date" },
+        "reason": { "type": "string" },
+        "status": { "type": "string", "enum": ["PENDING", "APPROVED", "REJECTED"] },
+        "approvedBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "type", "startDate", "endDate", "status"]
+    },
+    "Notice": {
+      "title": "Company Notice",
+      "description": "Announcements for all or specific departments",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "authorUid": { "type": "string" },
+        "authorName": { "type": "string" },
+        "targetDept": { "type": "string", "description": "ALL or specific department" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "isImportant": { "type": "boolean" }
+      },
+      "required": ["title", "content", "authorUid", "createdAt"]
+    },
+    "Department": {
+      "title": "Department",
+      "description": "A department or team in the shipyard",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "createdAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "System and health check notifications",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string", "enum": ["HEALTH_CHECK", "NOTICE", "SYSTEM", "LEAVE_REMINDER", "COUPON", "EMERGENCY"] },
+        "isRead": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "fromUid": { "type": "string" },
+        "fromName": { "type": "string" }
+      },
+      "required": ["uid", "title", "message", "type", "isRead", "createdAt"]
+    },
+    "LottoHistory": {
+      "title": "Lotto History",
+      "description": "History of generated lotto numbers",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "lines": { 
+          "type": "array", 
+          "items": { "type": "string" }
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "lines", "createdAt"]
+    },
+    "EmergencyLog": {
+      "title": "Emergency SOS Log",
+      "description": "Logs of emergency SOS requests sent by users",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "type": { "type": "string" },
+        "location": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "type", "createdAt"]
+    },
+    "Training": {
+      "title": "Training Module",
+      "description": "Educational material and quiz for employees",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "content": { "type": "string", "description": "Markdown content" },
+        "videoUrl": { "type": "string" },
+        "targetJobRole": { "type": "string", "description": "Specific job role or empty for all" },
+        "questions": { 
+          "type": "array", 
+          "items": { "$ref": "#/entities/QuizQuestion" } 
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "content", "questions", "createdAt"]
+    },
+    "QuizQuestion": {
+      "title": "Quiz Question",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "question": { "type": "string" },
+        "options": { "type": "array", "items": { "type": "string" } },
+        "correctAnswer": { "type": "number" }
+      }
+    },
+    "TrainingResult": {
+      "title": "Training Result",
+      "description": "Employee's exam completion record",
+      "type": "object",
+      "properties": {
+        "trainingId": { "type": "string" },
+        "trainingTitle": { "type": "string" },
+        "uid": { "type": "string" },
+        "userName": { "type": "string" },
+        "score": { "type": "number" },
+        "totalQuestions": { "type": "number" },
+        "isPassed": { "type": "boolean" },
+        "completedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["trainingId", "uid", "score", "isPassed", "completedAt"]
+    },
+    "JobRole": {
+      "title": "Job Role",
+      "description": "Specific job role definition",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "createdAt"]
+    },
+    "RedemptionRequest": {
+      "title": "Redemption Request",
+      "description": "Request to redeem praise points for cash (현물 신청)",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "userName": { "type": "string" },
+        "pointsRequested": { "type": "number" },
+        "amount": { "type": "number" },
+        "status": { "type": "string", "enum": ["PENDING", "APPROVED", "REJECTED", "COMPLETED"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "processedAt": { "type": "string", "format": "date-time" },
+        "processedBy": { "type": "string" },
+        "processedByName": { "type": "string" }
+      },
+      "required": ["uid", "userName", "pointsRequested", "amount", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/attendance/{attendanceId}": {
+      "schema": "Attendance",
+      "description": "Attendance logs"
+    },
+    "/leaveRequests/{requestId}": {
+      "schema": "LeaveRequest",
+      "description": "Leave requests"
+    },
+    "/notices/{noticeId}": {
+      "schema": "Notice",
+      "description": "Company notices"
+    },
+    "/departments/{departmentId}": {
+      "schema": "Department",
+      "description": "Shipyard departments/teams"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "User notifications"
+    },
+    "/lottoHistory/{historyId}": {
+      "schema": "LottoHistory",
+      "description": "Lotto generation history"
+    },
+    "/accidentCases/{caseId}": {
+      "schema": "AccidentCase",
+      "description": "Safety accident reports"
+    },
+    "/emergencyLogs/{logId}": {
+      "schema": "EmergencyLog",
+      "description": "Emergency SOS logs"
+    },
+    "/praiseCoupons/{couponId}": {
+      "schema": "PraiseCoupon",
+      "description": "Praise coupons given to employees"
+    },
+    "/trainings/{trainingId}": {
+      "schema": "Training",
+      "description": "Training modules and quizzes"
+    },
+    "/trainingResults/{resultId}": {
+      "schema": "TrainingResult",
+      "description": "User training/exam results"
+    },
+    "/safetyScoreLogs/{logId}": {
+      "schema": "SafetyScoreLog",
+      "description": "Logs of safety score adjustments"
+    },
+    "/jobRoles/{roleId}": {
+      "schema": "JobRole",
+      "description": "Job roles management"
+    },
+    "/redemptionRequests/{requestId}": {
+      "schema": "RedemptionRequest",
+      "description": "Point redemption requests"
+    }
+  }
+}

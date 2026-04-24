@@ -1,0 +1,287 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Fields: uid, email, displayName, role, department, position, phoneNumber, joinedAt, isActive
+    //
+    // Collection: attendance
+    // Fields: uid, date, clockIn, clockOut, status, memo
+    //
+    // Collection: leaveRequests
+    // Fields: uid, type, startDate, endDate, reason, status, approvedBy, createdAt
+    //
+    // Collection: notices
+    // Fields: title, content, authorUid, authorName, targetDept, createdAt, isImportant
+    // Collection: departments
+    // Fields: name, createdAt
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isHRManager() {
+      return isAuthenticated() && (
+        request.auth.token.email == "tjrwnfjqm1@gmail.com" ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['CEO', 'DIRECTOR', 'GENERAL_AFFAIRS', 'GENERAL_MANAGER', 'CLERK', 'SAFETY_MANAGER', 'TEAM_LEADER'] ||
+          ('permissions' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data && 
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions != null &&
+           (
+             'employee_mgmt' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions ||
+             'attendance_mgmt' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions ||
+             'notice_mgmt' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions ||
+             'accident_mgmt' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions ||
+             'training_mgmt' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions
+           ))
+        ))
+      );
+    }
+
+    function canManageRedemption() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['CEO', 'DIRECTOR', 'GENERAL_AFFAIRS', 'GENERAL_MANAGER'] ||
+        ('permissions' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions != null &&
+         'redemption_mgmt' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions)
+      );
+    }
+
+    function canManageCoupons() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['CEO', 'SAFETY_MANAGER'] || 
+        ('permissions' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions != null &&
+         'praise_coupon' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions)
+      );
+    }
+
+    function isSafetyManager() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'SAFETY_MANAGER' ||
+        ('permissions' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions != null &&
+         'accident_mgmt' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions)
+      );
+    }
+
+    function isTeamLeader(deptId) {
+      return isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'TEAM_LEADER' && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.departmentId == deptId;
+    }
+
+    function canManageTraining() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['CEO', 'SAFETY_MANAGER', 'DIRECTOR'] ||
+        ('permissions' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions != null &&
+         'training_mgmt' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions)
+      );
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'role', 'displayName']) &&
+             data.uid is string &&
+             data.email is string &&
+             data.role in ['CEO', 'DIRECTOR', 'GENERAL_AFFAIRS', 'GENERAL_MANAGER', 'CLERK', 'SAFETY_MANAGER', 'TEAM_LEADER', 'EMPLOYEE'] &&
+             (!('joinedAt' in data) || data.joinedAt is string) &&
+             (!('resignedAt' in data) || data.resignedAt is string);
+    }
+
+    function isValidAttendance(data) {
+      return data.keys().hasAll(['uid', 'date', 'clockIn']) &&
+             data.uid is string &&
+             data.date is string &&
+             (!('clockOut' in data) || data.clockOut is string) &&
+             (!('healthStatus' in data) || data.healthStatus in ['GOOD', 'NORMAL', 'BAD']);
+    }
+
+    function isValidAccidentCase(data) {
+      return data.keys().hasAll(['title', 'date', 'location', 'description', 'severity', 'type', 'reportedByUid', 'createdAt']) &&
+             data.title is string &&
+             data.reportedByUid is string &&
+             data.severity in ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] &&
+             data.type in ['SAFE', 'INCIDENT', 'ACCIDENT', 'OTHER'];
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll(['uid', 'title', 'message', 'type', 'isRead', 'createdAt']) &&
+             data.uid is string &&
+             data.type in ['HEALTH_CHECK', 'NOTICE', 'SYSTEM', 'LEAVE_REMINDER', 'COUPON', 'EMERGENCY'] &&
+             data.isRead is bool;
+    }
+
+    function isValidPraiseCoupon(data) {
+      return data.keys().hasAll(['senderUid', 'receiverUid', 'points', 'reason', 'location', 'date', 'time', 'createdAt']) &&
+             data.senderUid is string &&
+             data.receiverUid is string &&
+             data.points is number && data.points > 0 &&
+             data.reason is string && data.reason.size() < 1000 &&
+             data.location is string && data.location.size() < 200 &&
+             data.date is string &&
+             data.time is string;
+    }
+
+    function isValidRedemptionRequest(data) {
+      return data.keys().hasAll(['uid', 'userName', 'pointsRequested', 'amount', 'status', 'createdAt']) &&
+             data.uid is string &&
+             data.userName is string &&
+             data.pointsRequested is number && data.pointsRequested > 0 &&
+             data.amount is number &&
+             data.status in ['PENDING', 'APPROVED', 'REJECTED', 'COMPLETED'] &&
+             data.createdAt is string;
+    }
+
+    function isValidSafetyScoreLog(data) {
+      return data.keys().hasAll(['targetUid', 'targetName', 'adminUid', 'adminName', 'adminRole', 'scoreDelta', 'previousScore', 'newScore', 'reason', 'type', 'createdAt']) &&
+             data.targetUid is string &&
+             data.adminUid is string &&
+             data.scoreDelta is number &&
+             data.previousScore is number &&
+             data.newScore is number &&
+             data.type in ['PENALTY', 'REWARD'] &&
+             data.createdAt is string;
+    }
+
+    function isValidTask(data) {
+      return data.keys().hasAll(['title', 'description', 'status', 'assignedToUid', 'assignedToName', 'priority', 'createdAt']) &&
+             data.title is string &&
+             data.assignedToUid is string &&
+             data.status in ['TODO', 'IN_PROGRESS', 'DONE'] &&
+             data.priority in ['LOW', 'MEDIUM', 'HIGH'];
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{uid} {
+      // Allow unauthenticated read for the login screen's identity/lock check
+      // and allow users to read/update their own profiles (by UID or by matched Email for migration)
+      allow read: if true; 
+      allow create: if isAuthenticated() && (uid == request.auth.uid || isHRManager()) && isValidUser(request.resource.data);
+      allow update: if (isAuthenticated() && (
+        uid == request.auth.uid || 
+        isHRManager() || 
+        canManageCoupons() || // CEO and SAFETY_MANAGER can update safety scores
+        (resource != null && resource.data.email == request.auth.token.email) ||
+        (resource != null && resource.data.employeeId == request.auth.token.email.replace("@shipyard.com", ""))
+      )) || (
+        // Allow unauthenticated update for failed login tracking (Locking)
+        resource != null && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['failedLoginAttempts', 'isLocked'])
+      );
+      allow delete: if isHRManager() || (isAuthenticated() && resource.data.email == request.auth.token.email);
+    }
+
+    match /attendance/{attendanceId} {
+      allow read: if isAuthenticated() && (isOwner(resource.data.uid) || isHRManager() || (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && isTeamLeader(resource.data.departmentId)));
+      allow create: if isAuthenticated() && isOwner(request.resource.data.uid) && isValidAttendance(request.resource.data);
+      allow update: if isAuthenticated() && (isOwner(resource.data.uid) || isHRManager());
+    }
+
+    match /leaveRequests/{requestId} {
+      allow read: if isAuthenticated() && (isOwner(resource.data.uid) || isHRManager() || (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && isTeamLeader(get(/databases/$(database)/documents/users/$(resource.data.uid)).data.departmentId)));
+      allow create: if isAuthenticated() && isOwner(request.resource.data.uid);
+      allow update: if isAuthenticated() && (isOwner(resource.data.uid) || isHRManager());
+    }
+
+    match /accidentCases/{caseId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidAccidentCase(request.resource.data);
+      allow update, delete: if isAuthenticated() && (isHRManager() || isSafetyManager() || request.auth.uid == resource.data.reportedByUid);
+    }
+
+    match /notices/{noticeId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isHRManager();
+      allow update, delete: if isAuthenticated() && (isHRManager() && (resource == null || request.auth.uid == resource.data.authorUid));
+    }
+
+    match /departments/{departmentId} {
+      allow read: if isAuthenticated();
+      allow write: if isHRManager();
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() && isOwner(resource.data.uid);
+      allow create: if isAuthenticated(); 
+      allow update: if isAuthenticated() && isOwner(resource.data.uid);
+      allow delete: if isAuthenticated() && isOwner(resource.data.uid);
+    }
+
+    match /lottoHistory/{historyId} {
+      allow read: if isAuthenticated() && isOwner(resource.data.uid);
+      allow create: if isAuthenticated() && isOwner(request.resource.data.uid);
+      allow update: if isAuthenticated() && isOwner(resource.data.uid);
+      allow delete: if isAuthenticated() && isOwner(resource.data.uid);
+    }
+
+    match /emergencyLogs/{logId} {
+      allow read: if isAuthenticated() && (isHRManager() || isSafetyManager());
+      allow create: if isAuthenticated() && isOwner(request.resource.data.uid);
+    }
+
+    match /praiseCoupons/{couponId} {
+      allow read: if isAuthenticated();
+      allow create: if canManageCoupons() && isValidPraiseCoupon(request.resource.data);
+      allow update, delete: if canManageCoupons();
+    }
+
+    match /settings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isHRManager();
+    }
+
+    match /trainings/{trainingId} {
+      allow read: if isAuthenticated();
+      allow write: if canManageTraining();
+    }
+
+    match /trainingResults/{resultId} {
+      allow read: if isAuthenticated() && (isOwner(resource.data.uid) || canManageTraining());
+      allow create: if isAuthenticated() && isOwner(request.resource.data.uid);
+      allow update, delete: if canManageTraining();
+    }
+
+    match /safetyScoreLogs/{logId} {
+      allow read: if isAuthenticated();
+      allow create: if canManageCoupons() && isValidSafetyScoreLog(request.resource.data);
+      allow update, delete: if canManageCoupons();
+    }
+
+    match /jobRoles/{roleId} {
+      allow read: if isAuthenticated();
+      allow write: if isHRManager();
+    }
+
+    match /redemptionRequests/{requestId} {
+      allow read: if isAuthenticated() && (isOwner(resource.data.uid) || canManageRedemption());
+      allow create: if isAuthenticated() && isOwner(request.resource.data.uid) && isValidRedemptionRequest(request.resource.data);
+      allow update: if isAuthenticated() && canManageRedemption();
+      allow delete: if isAuthenticated() && canManageRedemption();
+    }
+
+    match /tasks/{taskId} {
+      allow read: if isAuthenticated() && (isOwner(resource.data.assignedToUid) || isHRManager());
+      allow create: if isHRManager();
+      allow update: if isAuthenticated() && (isOwner(resource.data.assignedToUid) || isHRManager());
+      allow delete: if isHRManager();
+    }
+  }
+}
