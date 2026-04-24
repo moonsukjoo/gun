@@ -102,24 +102,23 @@ export const Lotto: React.FC = () => {
       <header className="flex flex-col gap-1">
         <div className="flex items-center gap-2">
           <div className="w-2 h-6 bg-primary rounded-full" />
-          <h2 className="text-3xl font-black tracking-tighter text-slate-900">로또 번호 생성기</h2>
+          <h2 className="text-3xl font-black tracking-tighter text-white">로또 번호 생성기</h2>
         </div>
-        <p className="text-[11px] text-slate-500 font-bold uppercase tracking-[0.2em] ml-4">Lotto Number Generator</p>
       </header>
 
       <div className="grid lg:grid-cols-2 gap-8">
         <div className="space-y-6">
-          <Card className="border-none shadow-sm bg-white rounded-3xl overflow-hidden">
+          <Card className="border-none shadow-none bg-card rounded-3xl overflow-hidden border border-white/5">
             <CardHeader className="p-6 pb-2">
-              <CardTitle className="text-lg font-black tracking-tight flex items-center gap-2">
+              <CardTitle className="text-lg font-black tracking-tight flex items-center gap-2 text-white">
                 <Sparkles className="w-5 h-5 text-yellow-500" /> 번호 생성 (1,000원 / 0.2P)
               </CardTitle>
             </CardHeader>
             <CardContent className="p-6 space-y-6">
-              <div className="bg-slate-100 p-4 rounded-2xl flex items-center justify-between border border-slate-200">
+              <div className="bg-white/5 p-4 rounded-2xl flex items-center justify-between border border-white/5">
                 <div className="flex items-center gap-2">
                   <Coins className="w-4 h-4 text-primary" />
-                  <span className="text-xs font-black text-slate-600 uppercase tracking-widest">나의 포인트</span>
+                  <span className="text-xs font-black text-muted-foreground uppercase tracking-widest">나의 포인트</span>
                 </div>
                 <span className="text-xl font-black text-primary tracking-tighter">{(profile?.points || 0).toFixed(1)}P</span>
               </div>
@@ -134,7 +133,7 @@ export const Lotto: React.FC = () => {
                       className="space-y-3"
                     >
                       {currentLines.map((line, idx) => (
-                        <div key={idx} className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                        <div key={idx} className="flex items-center justify-between p-3 bg-black/20 rounded-2xl border border-white/5">
                           <div className="flex gap-1.5">
                             {line.slice(0, 6).map((num, nIdx) => (
                               <div 
@@ -149,7 +148,7 @@ export const Lotto: React.FC = () => {
                             ))}
                           </div>
                           <div className="flex items-center gap-2">
-                            <div className="text-[10px] font-black text-slate-400">+</div>
+                            <div className="text-[10px] font-black text-white/20">+</div>
                             <div className={cn(
                               "w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-black text-white shadow-sm",
                               getBallColor(line[6])
@@ -162,10 +161,10 @@ export const Lotto: React.FC = () => {
                     </motion.div>
                   ) : (
                     <div className="flex flex-col items-center justify-center text-center space-y-4 opacity-40">
-                      <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center">
-                        <Ticket className="w-10 h-10 text-slate-400" />
+                      <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center">
+                        <Ticket className="w-10 h-10 text-white/20" />
                       </div>
-                      <p className="text-xs font-black text-slate-500 uppercase tracking-widest leading-relaxed">
+                      <p className="text-xs font-black text-muted-foreground uppercase tracking-widest leading-relaxed">
                         버튼을 눌러 행운의 번호를<br />생성해보세요!
                       </p>
                     </div>
@@ -174,7 +173,7 @@ export const Lotto: React.FC = () => {
               </div>
 
               <Button 
-                className="w-full h-14 rounded-2xl font-black text-lg shadow-xl shadow-primary/20 gap-2"
+                className="w-full h-14 rounded-2xl bg-primary text-white font-black text-lg shadow-xl shadow-primary/20 gap-2 hover:bg-primary/90"
                 onClick={handleGenerate}
                 disabled={isGenerating}
               >
@@ -191,23 +190,23 @@ export const Lotto: React.FC = () => {
 
         <div className="space-y-6">
           <div className="flex items-center justify-between px-1">
-            <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-[0.2em] flex items-center gap-2">
+            <h3 className="text-[11px] font-black text-muted-foreground uppercase tracking-[0.2em] flex items-center gap-2">
               <History className="w-4 h-4" /> 최근 생성 기록
             </h3>
-            <div className="h-px flex-1 bg-slate-200 ml-4" />
+            <div className="h-px flex-1 bg-white/5 ml-4" />
           </div>
 
           <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2 scrollbar-hide">
-            {history.length > 0 ? (
-              history.map((item) => (
-                <Card key={item.id} className="border-none shadow-sm bg-white rounded-2xl overflow-hidden">
+            {history.filter(item => item.lines && item.lines.length > 0).length > 0 ? (
+              history.filter(item => item.lines && item.lines.length > 0).map((item) => (
+                <Card key={item.id} className="border-none shadow-none bg-card rounded-2xl overflow-hidden border border-white/5">
                   <CardHeader className="p-4 pb-0 flex flex-row items-center justify-between">
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    <span className="text-[10px] font-black text-white/20 uppercase tracking-widest">
                       {format(new Date(item.createdAt), 'yyyy.MM.dd HH:mm')}
                     </span>
                   </CardHeader>
                   <CardContent className="p-4 pt-2 space-y-2">
-                    {item.lines.map((lineStr, lIdx) => {
+                    {item.lines?.map((lineStr, lIdx) => {
                       const numbers = lineStr.split(',').map(Number);
                       return (
                         <div key={lIdx} className="flex items-center justify-between scale-[0.85] origin-left">
@@ -225,7 +224,7 @@ export const Lotto: React.FC = () => {
                             ))}
                           </div>
                           <div className="flex items-center gap-1">
-                            <div className="text-[9px] font-black text-slate-300">+</div>
+                            <div className="text-[9px] font-black text-white/20">+</div>
                             <div className={cn(
                               "w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-black text-white shadow-sm",
                               getBallColor(numbers[6])
@@ -240,11 +239,11 @@ export const Lotto: React.FC = () => {
                 </Card>
               ))
             ) : (
-              <div className="py-20 text-center space-y-4 bg-white rounded-3xl border border-dashed border-slate-200">
-                <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto text-slate-300">
+              <div className="py-20 text-center space-y-4 bg-card rounded-3xl border border-dashed border-white/10">
+                <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mx-auto text-white/10">
                   <History className="w-8 h-8" />
                 </div>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">기록이 없습니다</p>
+                <p className="text-[10px] font-black text-white/20 uppercase tracking-widest">기록이 없습니다</p>
               </div>
             )}
           </div>

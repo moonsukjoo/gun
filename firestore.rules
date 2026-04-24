@@ -123,6 +123,16 @@ service cloud.firestore {
              data.time is string;
     }
 
+    function isValidRedemptionRequest(data) {
+      return data.keys().hasAll(['uid', 'userName', 'pointsRequested', 'amount', 'status', 'createdAt']) &&
+             data.uid is string &&
+             data.userName is string &&
+             data.pointsRequested is number && data.pointsRequested > 0 &&
+             data.amount is number &&
+             data.status in ['PENDING', 'APPROVED', 'REJECTED', 'COMPLETED'] &&
+             data.createdAt is string;
+    }
+
     function isValidSafetyScoreLog(data) {
       return data.keys().hasAll(['targetUid', 'targetName', 'adminUid', 'adminName', 'adminRole', 'scoreDelta', 'previousScore', 'newScore', 'reason', 'type', 'createdAt']) &&
              data.targetUid is string &&
@@ -235,6 +245,13 @@ service cloud.firestore {
     match /jobRoles/{roleId} {
       allow read: if isAuthenticated();
       allow write: if isHRManager();
+    }
+
+    match /redemptionRequests/{requestId} {
+      allow read: if isAuthenticated() && (isOwner(resource.data.uid) || isHRManager());
+      allow create: if isAuthenticated() && isOwner(request.resource.data.uid) && isValidRedemptionRequest(request.resource.data);
+      allow update: if isAuthenticated() && isHRManager();
+      allow delete: if isAuthenticated() && isHRManager();
     }
   }
 }

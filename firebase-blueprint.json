@@ -243,6 +243,23 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["name", "createdAt"]
+    },
+    "RedemptionRequest": {
+      "title": "Redemption Request",
+      "description": "Request to redeem praise points for cash (현물 신청)",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "userName": { "type": "string" },
+        "pointsRequested": { "type": "number" },
+        "amount": { "type": "number" },
+        "status": { "type": "string", "enum": ["PENDING", "APPROVED", "REJECTED", "COMPLETED"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "processedAt": { "type": "string", "format": "date-time" },
+        "processedBy": { "type": "string" },
+        "processedByName": { "type": "string" }
+      },
+      "required": ["uid", "userName", "pointsRequested", "amount", "status", "createdAt"]
     }
   },
   "firestore": {
@@ -301,6 +318,10 @@
     "/jobRoles/{roleId}": {
       "schema": "JobRole",
       "description": "Job roles management"
+    },
+    "/redemptionRequests/{requestId}": {
+      "schema": "RedemptionRequest",
+      "description": "Point redemption requests"
     }
   }
 }

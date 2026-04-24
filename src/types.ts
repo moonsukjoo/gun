@@ -178,3 +178,16 @@ export interface PraiseCoupon {
   points: number;
   createdAt: string;
 }
+
+export interface RedemptionRequest {
+  id: string;
+  uid: string;
+  userName: string;
+  pointsRequested: number;
+  amount: number; // Won (points * 5000)
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'COMPLETED';
+  createdAt: string;
+  processedAt?: string;
+  processedBy?: string;
+  processedByName?: string;
+}

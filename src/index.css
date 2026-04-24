@@ -2,30 +2,36 @@
 @import "react-day-picker/style.css";
 
 @theme {
-  --font-sans: 'Inter', 'Segoe UI', sans-serif;
+  --font-sans: 'Inter', 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, 'Helvetica Neue', 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', sans-serif;
   --font-mono: 'JetBrains Mono', 'Roboto Mono', monospace;
   
-  --color-background: #F1F5F9;
-  --color-foreground: #020617;
+  --color-background: #101113;
+  --color-foreground: #FFFFFF;
   
-  --color-primary: #2563EB;
+  --color-primary: #3182f6;
   --color-primary-foreground: #FFFFFF;
   
-  --color-card: #FFFFFF;
-  --color-card-foreground: #020617;
+  --color-card: #1c1c1e;
+  --color-card-foreground: #FFFFFF;
   
-  --color-muted: #E2E8F0;
-  --color-muted-foreground: #334155;
+  --color-muted: #2c2c2e;
+  --color-muted-foreground: #8e8e93;
   
-  --color-accent: #3B82F6;
+  --color-accent: #3182f6;
   --color-accent-foreground: #FFFFFF;
   
-  --color-border: #CBD5E1;
+  --color-border: #2c2c2e;
+
+  --radius-xl: 1.25rem;
+  --radius-2xl: 1.5rem;
+  --radius-3xl: 2rem;
 }
 
 @layer base {
   body {
     @apply bg-background text-foreground font-sans antialiased overflow-x-hidden;
+    background-color: #101113;
+    color: #FFFFFF;
     -webkit-tap-highlight-color: transparent;
     user-select: none;
   }
@@ -36,88 +42,22 @@
 }
 
 .glass {
-  @apply bg-white/80 backdrop-blur-lg border-t border-slate-200/50;
+  @apply bg-[#1c1c1e]/80 backdrop-blur-xl border-t border-white/5;
 }
 
-.card-hover {
-  @apply transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.98];
-}
+/* Custom Scrollbar for dark theme */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 10px; }
 
-/* DayPicker Responsiveness Fix */
-.rdp {
-  --rdp-cell-size: 38px !important;
-  margin: 0 !important;
-}
+/* Elderly Mode */
+html.elderly-mode { font-size: 140%; }
+html.elderly-mode body { font-weight: 700; }
 
-@media (max-width: 400px) {
-  .rdp {
-    --rdp-cell-size: 32px !important;
-  }
-}
+/* DayPicker customization */
+.rdp { --rdp-accent-color: #3182f6; --rdp-background-color: #3182f6; }
 
-.rdp-table {
-  max-width: 100% !important;
-}
-
-/* Beautiful Centered Sonner Toasts */
-[data-sonner-toaster][data-position="top-center"] {
-  top: 15% !important;
-  left: 50% !important;
-  transform: translateX(-50%) !important;
-}
-
+/* Toasts customization for dark theme */
 .cn-toast {
-  @apply !bg-white/95 !backdrop-blur-xl !border-none !shadow-[0_20px_50px_rgba(0,0,0,0.1)] !rounded-[2rem] !p-5 !w-[90vw] !max-w-[360px] !flex !items-center !gap-4 !transition-all !duration-500;
-  border: 1px solid rgba(255, 255, 255, 0.5) !important;
+  @apply !bg-[#1c1c1e]/95 !backdrop-blur-xl !border-white/10 !text-white !rounded-2xl !shadow-2xl;
 }
-
-.cn-toast[data-type="error"] {
-  @apply !bg-red-50/95;
-  border: 1px solid rgba(239, 68, 68, 0.1) !important;
-}
-
-.cn-toast[data-type="success"] {
-  @apply !bg-emerald-50/95;
-  border: 1px solid rgba(16, 185, 129, 0.1) !important;
-}
-
-.cn-toast [data-icon] {
-  @apply !w-10 !h-10 !rounded-2xl !flex !items-center !justify-center !shadow-sm !scale-125 !mr-2;
-}
-
-.cn-toast [data-content] {
-  @apply !flex-1;
-}
-
-.cn-toast [data-title] {
-  @apply !text-sm !font-black !text-slate-900 !tracking-tight !leading-tight;
-}
-
-.cn-toast [data-description] {
-  @apply !text-[11px] !font-bold !text-slate-500 !mt-0.5 !leading-relaxed;
-}
-
-/* Elderly Mode ( 어르신 모드 ) */
-html.elderly-mode {
-  font-size: 150%;
-}
-
-html.elderly-mode .text-[10px] { font-size: 0.85rem; }
-html.elderly-mode .text-[11px] { font-size: 0.9rem; }
-html.elderly-mode .text-xs { font-size: 1rem; }
-html.elderly-mode .text-sm { font-size: 1.15rem; }
-html.elderly-mode .text-base { font-size: 1.35rem; }
-html.elderly-mode .text-lg { font-size: 1.5rem; }
-html.elderly-mode .text-xl { font-size: 1.75rem; }
-html.elderly-mode .text-2xl { font-size: 2rem; }
-html.elderly-mode .text-3xl { font-size: 2.5rem; }
-html.elderly-mode .text-4xl { font-size: 3rem; }
-
-html.elderly-mode body {
-  @apply font-black; /* Make text bolder for better visibility */
-}
-
-/* Adjust paddings/spacings in elderly mode slightly if needed */
-html.elderly-mode .p-10 { padding: 1.5rem; }
-html.elderly-mode .p-8 { padding: 1.25rem; }
-

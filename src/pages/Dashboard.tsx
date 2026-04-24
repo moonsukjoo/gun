@@ -6,20 +6,27 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { 
   Clock, 
-  Calendar, 
   CalendarDays,
   ShieldCheck,
   Activity,
-  Bell
+  Bell,
+  Plus,
+  Megaphone,
+  ShieldAlert,
+  Info,
+  Ship,
+  ChevronRight,
+  BookOpen,
+  TrendingUp,
+  TrendingDown
 } from 'lucide-react';
 import { db } from '@/src/firebase';
-import { collection, query, where, onSnapshot, addDoc, updateDoc, doc, limit, orderBy } from 'firebase/firestore';
-import { Attendance, Notice, Role, Notification, AccidentCase, LeaveRequest } from '@/src/types';
-import { format, differenceInMinutes, startOfMonth, subMonths } from 'date-fns';
+import { collection, query, where, onSnapshot, addDoc, updateDoc, doc, limit, orderBy, getDocs } from 'firebase/firestore';
+import { Attendance, Notice, Role, AccidentCase, LeaveRequest } from '@/src/types';
+import { format, startOfMonth, subMonths } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { getDocs } from 'firebase/firestore';
 import { 
   Dialog,
   DialogContent,
@@ -31,10 +38,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Plus, Megaphone, ShieldAlert, AlertCircle, Info, InfoIcon, Ship, ChevronRight, BookOpen, TrendingUp, TrendingDown, PhoneCall, RefreshCw } from 'lucide-react';
 import { grantRandomShipPart } from '@/src/services/shipService';
 import { sendPushNotification, requestNotificationPermission } from '@/src/services/notificationService';
-
 import { calculateAttendanceHours } from '@/src/lib/attendance';
 
 export const Dashboard: React.FC = () => {
@@ -58,7 +63,6 @@ export const Dashboard: React.FC = () => {
     requestNotificationPermission();
     if (!profile) return;
 
-    // Fetch today's attendance for current user
     const today = format(new Date(), 'yyyy-MM-dd');
     const q = query(
       collection(db, 'attendance'), 
@@ -74,11 +78,8 @@ export const Dashboard: React.FC = () => {
       } else {
         setTodayAttendance(null);
       }
-    }, (error) => {
-      console.error("Dashboard attendance sync error:", error);
     });
 
-    // Fetch recent notices
     const noticeQ = query(
       collection(db, 'notices'),
       orderBy('createdAt', 'desc'),
@@ -87,11 +88,8 @@ export const Dashboard: React.FC = () => {
 
     const unsubscribeNotices = onSnapshot(noticeQ, (snapshot) => {
       setRecentNotices(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Notice)));
-    }, (error) => {
-      console.error("Dashboard notices sync error:", error);
     });
 
-    // Fetch recent accidents
     const accidentQ = query(
       collection(db, 'accidentCases'),
       orderBy('createdAt', 'desc'),
@@ -99,11 +97,8 @@ export const Dashboard: React.FC = () => {
     );
     const unsubscribeAccidents = onSnapshot(accidentQ, (snapshot) => {
       setRecentAccidents(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AccidentCase)));
-    }, (error) => {
-      console.error("Dashboard accidents sync error:", error);
     });
 
-    // Fetch trend logic
     const trendQ = query(
       collection(db, 'safetyScoreLogs'),
       where('targetUid', '==', profile.uid)
@@ -146,16 +141,8 @@ export const Dashboard: React.FC = () => {
     }
 
     try {
-      // Roles to notify as requested: General Affairs, Safety Manager
       const globalTargetRoles: Role[] = ['GENERAL_AFFAIRS', 'SAFETY_MANAGER'];
-      
-      // Fetch global managers
-      const managersQuery = query(
-        collection(db, 'users'),
-        where('role', 'in', globalTargetRoles)
-      );
-      
-      // Fetch department team leader (Team Leader)
+      const managersQuery = query(collection(db, 'users'), where('role', 'in', globalTargetRoles));
       const teamLeaderQuery = query(
         collection(db, 'users'),
         where('role', '==', 'TEAM_LEADER'),
@@ -170,8 +157,6 @@ export const Dashboard: React.FC = () => {
       const targetUids = new Set<string>();
       managersSnap.docs.forEach(doc => targetUids.add(doc.id));
       teamLeaderSnap.docs.forEach(doc => targetUids.add(doc.id));
-      
-      // Remove self
       targetUids.delete(profile.uid);
 
       if (targetUids.size === 0) return;
@@ -202,9 +187,7 @@ export const Dashboard: React.FC = () => {
 
     if (todayAttendance) {
       try {
-        await updateDoc(doc(db, 'attendance', todayAttendance.id), {
-          healthStatus: status
-        });
+        await updateDoc(doc(db, 'attendance', todayAttendance.id), { healthStatus: status });
         await sendHealthNotification(status);
         toast.success('건강상태 보고 완료', {
           description: `오늘의 건강상태를 '${status === 'GOOD' ? '좋음' : status === 'NORMAL' ? '보통' : '나쁨'}'으로 보고했습니다.`
@@ -219,12 +202,9 @@ export const Dashboard: React.FC = () => {
     if (!profile) return;
     const now = new Date();
     const today = format(now, 'yyyy-MM-dd');
-    
-    // Check if late (after 09:00)
     const status = now.getHours() >= 9 && now.getMinutes() > 0 ? 'LATE' : 'PRESENT';
 
     try {
-      // Check for approved leave today
       const leaveQuery = query(
         collection(db, 'leaveRequests'),
         where('uid', '==', profile.uid),
@@ -252,7 +232,6 @@ export const Dashboard: React.FC = () => {
         description: `${format(now, 'HH:mm')}에 정상적으로 출근 처리되었습니다.`
       });
     } catch (error) {
-      console.error("Clock-in error:", error);
       toast.error('출근 처리 중 오류가 발생했습니다.');
     }
   };
@@ -261,9 +240,7 @@ export const Dashboard: React.FC = () => {
     if (!todayAttendance || !profile) return;
     try {
       const now = new Date();
-      
       const { workHours, overtimeHours } = calculateAttendanceHours(todayAttendance.clockIn, now);
-
       await updateDoc(doc(db, 'attendance', todayAttendance.id), {
         clockOut: now.toISOString(),
         workHours,
@@ -273,7 +250,6 @@ export const Dashboard: React.FC = () => {
         description: `${format(now, 'HH:mm')}에 안전하게 퇴근 처리되었습니다.`
       });
     } catch (error) {
-      console.error("Clock-out error:", error);
       toast.error('퇴근 처리 중 오류가 발생했습니다.');
     }
   };
@@ -301,17 +277,12 @@ export const Dashboard: React.FC = () => {
       );
 
       await Promise.all(notificationPromises);
-      
-      sendPushNotification('긴급 SOS 요청 완료', {
-        body: '관리자에게 알림이 전송되었습니다. 현 위치에서 대기해주세요.',
-      });
-      
+      sendPushNotification('긴급 SOS 요청 완료', { body: '관리자에게 알림이 전송되었습니다.' });
       toast.error('긴급 SOS 요청이 발송되었습니다!', {
         description: '관리자들이 즉시 확인 중입니다.',
         duration: 5000
       });
     } catch (error) {
-      console.error("SOS error:", error);
       toast.error('SOS 발송 중 오류가 발생했습니다.');
     } finally {
       setIsSOSLoading(false);
@@ -325,7 +296,7 @@ export const Dashboard: React.FC = () => {
     }
 
     try {
-      const noticeRef = await addDoc(collection(db, 'notices'), {
+      await addDoc(collection(db, 'notices'), {
         title: newNotice.title,
         content: newNotice.content,
         isImportant: newNotice.isImportant,
@@ -335,7 +306,6 @@ export const Dashboard: React.FC = () => {
         targetDept: 'ALL'
       });
 
-      // If shouldNotify is checked, create notifications for all users (in a real app this might be done via Cloud Functions)
       if (newNotice.shouldNotify) {
         const usersSnap = await getDocs(collection(db, 'users'));
         const notificationPromises = usersSnap.docs.map(uDoc => 
@@ -362,554 +332,281 @@ export const Dashboard: React.FC = () => {
   };
 
   return (
-    <div className="w-full max-w-xl mx-auto space-y-8 pb-32 px-4 flex flex-col items-center">
-      <header className="flex items-center justify-between bg-white p-6 rounded-[2.5rem] shadow-2xl border border-slate-100 w-full ring-4 ring-primary/5">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <span className="text-[9px] font-black text-primary uppercase tracking-[0.2em] bg-primary/10 px-2.5 py-0.5 rounded-full">대시보드</span>
-          </div>
-          <h2 className="text-2xl font-black tracking-tighter text-slate-900 leading-tight">
-            {profile?.displayName}<span className="text-slate-400 ml-1 font-bold">님</span>
-          </h2>
-          <div className="flex items-center gap-1.5 pt-1">
-            <Badge variant="outline" className="text-[8px] font-black border-none bg-slate-100 text-slate-500 px-2.5 py-0.5 rounded-full uppercase tracking-widest leading-none">
-              {profile?.departmentName || '부서 미지정'}
-            </Badge>
-            <Badge variant="outline" className="text-[8px] font-black border-none bg-primary text-white px-2.5 py-0.5 rounded-full uppercase tracking-widest leading-none">
-              {profile?.position || '직위 미지정'}
-            </Badge>
-          </div>
-        </div>
-        <div className="text-right flex flex-col items-end">
-          <div className="w-11 h-11 bg-slate-50 rounded-2xl flex items-center justify-center mb-1.5 border border-slate-200/50 shadow-inner">
-            <Calendar className="w-5 h-5 text-primary" />
-          </div>
-          <div className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-0.5">{format(new Date(), 'EEEE', { locale: ko })}</div>
-          <div className="text-sm font-black text-slate-900 tracking-tighter leading-none">{format(new Date(), 'MM.dd')}</div>
-        </div>
-      </header>
-
-      <div className="grid grid-cols-2 gap-4 w-full">
-        <Card className="border-none shadow-xl bg-white rounded-[2rem] hover:shadow-2xl transition-all border border-slate-100/50">
-          <CardContent className="p-5 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">출근</span>
-              <div className="w-6 h-6 bg-primary/10 rounded-lg flex items-center justify-center">
-                <Clock className="w-3.5 h-3.5 text-primary" />
-              </div>
-            </div>
-            <div className="text-2xl font-black tracking-tighter text-slate-900">
-              {todayAttendance ? format(new Date(todayAttendance.clockIn), 'HH:mm') : '--:--'}
-            </div>
-            <div className={cn(
-              "text-[9px] font-black px-2 py-0.5 rounded-full w-fit uppercase tracking-wider",
-              todayAttendance?.status === 'LATE' ? "bg-red-50 text-red-500" : "bg-emerald-50 text-emerald-500"
-            )}>
-              {todayAttendance ? (todayAttendance.status === 'LATE' ? '지각' : '정상') : '대기 중'}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-none shadow-xl bg-white rounded-[2rem] hover:shadow-2xl transition-all border border-slate-100/50">
-          <CardContent className="p-5 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">연차</span>
-              <div className="w-6 h-6 bg-blue-50 rounded-lg flex items-center justify-center">
-                <CalendarDays className="w-3.5 h-3.5 text-blue-500" />
-              </div>
-            </div>
-            <div className="text-2xl font-black tracking-tighter text-slate-900">{profile?.annualLeaveBalance || 0}<span className="text-sm text-slate-400 ml-1 font-bold tracking-tight">일</span></div>
-            <div className="text-[9px] font-black text-slate-300 uppercase tracking-widest leading-none">연차 잔액</div>
-          </CardContent>
-        </Card>
+    <div className="w-full max-w-xl mx-auto space-y-6 pb-24 px-4 overflow-x-hidden">
+      {/* Toss-style Greeting Header */}
+      <div className="py-8 space-y-2">
+        <p className="text-muted-foreground font-black text-lg">
+          {profile?.displayName}님,
+        </p>
+        <h1 className="text-3xl font-black text-white tracking-tight leading-tight whitespace-nowrap">
+          안전한 하루가 되세요
+        </h1>
       </div>
-      
-      {/* Ship Assembly Mini Game Promo */}
-      <Card 
-        className="border-none shadow-xl bg-white rounded-[2.5rem] overflow-hidden w-full cursor-pointer group active:scale-[0.98] transition-all"
-        onClick={() => navigate('/ship-assembly')}
-      >
-        <CardContent className="p-6 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-[#0066CC]/10 rounded-2xl flex items-center justify-center text-[#0066CC] group-hover:scale-110 transition-transform">
-              <Ship className="w-6 h-6" />
-            </div>
-            <div>
-              <h4 className="text-sm font-black text-slate-900 leading-tight tracking-tight">나만의 함선 조립</h4>
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Ship Assembly Collection</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="text-right">
-              <div className="text-[9px] font-black text-slate-300 tracking-widest leading-none mb-1 uppercase">Part Collection</div>
-              <div className="text-sm font-black text-[#0066CC] tracking-tighter leading-none">
-                {profile?.shipParts?.length || 0}<span className="text-[9px] text-slate-300 ml-0.5">PCS</span>
-              </div>
-            </div>
-            <div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center group-hover:bg-[#0066CC] group-hover:text-white transition-colors">
-              <Plus className="w-4 h-4" />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
 
-      {/* Safety Score / Ranking Promo - Only visible to CEO and Safety Manager */}
-      {profile && ['CEO', 'SAFETY_MANAGER'].includes(profile.role) && (
+      {/* Attendance & Leave Quick Actions */}
+      <div className="space-y-3">
         <Card 
-          className="border-none shadow-xl bg-white rounded-[2.5rem] overflow-hidden w-full cursor-pointer group active:scale-[0.98] transition-all border border-slate-100/50"
-          onClick={() => navigate('/safety-score')}
+          className="border-none shadow-none bg-card rounded-2xl overflow-hidden cursor-pointer active:scale-[0.98] transition-all border border-white/5"
+          onClick={() => navigate('/attendance')}
         >
           <CardContent className="p-6 flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center text-emerald-600 group-hover:scale-110 transition-transform shadow-inner">
-                <ShieldCheck className="w-6 h-6" />
+              <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center text-primary">
+                <Clock className="w-6 h-6" />
               </div>
-              <div>
-                <h4 className="text-sm font-black text-slate-900 leading-tight tracking-tight">안전지수 랭킹</h4>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Safety Performance Ranking</p>
+              <div className="flex flex-col overflow-hidden">
+                <h4 className="text-base font-black text-white leading-tight tracking-tight">오늘의 출근</h4>
+                <p className="text-sm text-muted-foreground font-bold truncate">
+                  {todayAttendance ? `${format(new Date(todayAttendance.clockIn), 'HH:mm')} 출근` : '아직 출근 전이에요'}
+                </p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="text-right">
-                <div className="text-[9px] font-black text-slate-300 tracking-widest leading-none mb-1 uppercase">My Score</div>
-                <div className="text-sm font-black text-emerald-600 tracking-tighter leading-none flex items-center justify-end gap-1.5">
-                  {profile?.safetyScore ?? 100}
-                  {userTrend !== 0 && (
-                    <div className={cn(
-                      "flex items-center gap-0.5 text-[10px]",
-                      userTrend > 0 ? "text-emerald-500" : "text-red-500"
-                    )}>
-                      {userTrend > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                      {Math.abs(userTrend)}
-                    </div>
-                  )}
-                  <span className="text-[9px] text-slate-300 font-bold uppercase tracking-widest">PT</span>
-                </div>
+            <Button size="sm" className="bg-primary text-white font-black rounded-xl px-4 py-0 h-9 shrink-0">
+              {todayAttendance ? '내역보기' : '체크인'}
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card 
+          className="border-none shadow-none bg-card rounded-2xl overflow-hidden cursor-pointer active:scale-[0.98] transition-all border border-white/5"
+          onClick={() => navigate('/leave')}
+        >
+          <CardContent className="p-6 flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-blue-500/10 rounded-full flex items-center justify-center text-blue-500">
+                <CalendarDays className="w-6 h-6" />
               </div>
-              <div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center group-hover:bg-emerald-600 group-hover:text-white transition-colors">
-                <ChevronRight className="w-4 h-4" />
+              <div className="flex flex-col overflow-hidden">
+                <h4 className="text-base font-black text-white leading-tight tracking-tight">남은 연차</h4>
+                <p className="text-sm text-muted-foreground font-bold truncate">{profile?.annualLeaveBalance || 0}일 사용할 수 있어요</p>
               </div>
+            </div>
+            <div className="flex items-center shrink-0">
+               <span className="text-lg font-black text-white mr-2">{profile?.annualLeaveBalance || 0}일</span>
+               <ChevronRight className="w-5 h-5 text-muted-foreground opacity-30" />
             </div>
           </CardContent>
         </Card>
+      </div>
+
+      {/* Main Features Grid Panel */}
+      <div className="bg-card rounded-2xl overflow-hidden border border-white/5">
+        <div className="p-6 pb-2">
+          <h4 className="text-xs font-black text-muted-foreground uppercase tracking-widest">통합 관리 서비스</h4>
+        </div>
+        
+        <div className="divide-y divide-white/5">
+          <div 
+            className="p-6 py-5 flex items-center justify-between group active:bg-white/5 transition-colors cursor-pointer"
+            onClick={() => navigate('/ship-assembly')}
+          >
+            <div className="flex items-center gap-4 overflow-hidden">
+              <div className="w-10 h-10 bg-blue-500/20 rounded-xl flex items-center justify-center text-blue-500 shrink-0">
+                <Ship className="w-5 h-5" />
+              </div>
+              <span className="text-base font-black text-white tracking-tight truncate">선박 조립 게임</span>
+            </div>
+            <div className="flex items-center gap-2">
+               <span className="text-sm font-black text-blue-500">{profile?.shipParts?.length || 0}개</span>
+               <ChevronRight className="w-5 h-5 text-muted-foreground opacity-30" />
+            </div>
+          </div>
+
+          <div 
+            className="p-6 py-5 flex items-center justify-between group active:bg-white/5 transition-colors cursor-pointer"
+            onClick={() => navigate('/training')}
+          >
+            <div className="flex items-center gap-4 overflow-hidden">
+              <div className="w-10 h-10 bg-emerald-500/20 rounded-xl flex items-center justify-center text-emerald-500 shrink-0">
+                <BookOpen className="w-5 h-5" />
+              </div>
+              <div className="flex flex-col overflow-hidden">
+                <span className="text-base font-black text-white tracking-tight truncate">직무 교육</span>
+                <span className="text-xs text-emerald-500 font-bold">{profile?.jobRole || '안전 교육'}</span>
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-muted-foreground opacity-30" />
+          </div>
+
+          <div 
+            className="p-6 py-5 flex items-center justify-between group active:bg-white/5 transition-colors cursor-pointer"
+            onClick={() => navigate('/safety-score')}
+          >
+            <div className="flex items-center gap-4 overflow-hidden">
+              <div className="w-10 h-10 bg-amber-500/20 rounded-xl flex items-center justify-center text-amber-500 shrink-0">
+                <ShieldCheck className="w-5 h-5" />
+              </div>
+              <div className="flex flex-col overflow-hidden">
+                <span className="text-base font-black text-white tracking-tight">나의 안전 지수</span>
+                <span className="text-xs text-muted-foreground font-bold truncate">점수 랭킹 확인</span>
+              </div>
+            </div>
+            <div className="text-right flex flex-col items-end shrink-0">
+              <span className="text-lg font-black text-amber-500">{profile?.safetyScore ?? 100}점</span>
+              {userTrend !== 0 && (
+                <span className={cn("text-[10px] font-black", userTrend > 0 ? "text-emerald-500" : "text-red-500")}>
+                  {userTrend > 0 ? <TrendingUp className="w-3 h-3 inline" /> : <TrendingDown className="w-3 h-3 inline" />} {Math.abs(userTrend)}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center p-2 bg-white/5">
+          <button 
+            onClick={() => navigate('/notices')}
+            className="flex-1 py-3 text-sm font-black text-muted-foreground hover:text-white transition-colors"
+          >
+            공지사항
+          </button>
+          <div className="w-px h-4 bg-white/10" />
+          <button 
+            onClick={() => navigate('/leave')}
+            className="flex-1 py-3 text-sm font-black text-muted-foreground hover:text-white transition-colors"
+          >
+            연차신청
+          </button>
+          <div className="w-px h-4 bg-white/10" />
+          <button 
+            onClick={() => navigate('/accidents')}
+            className="flex-1 py-3 text-sm font-black text-muted-foreground hover:text-white transition-colors"
+          >
+            사고사례
+          </button>
+        </div>
+      </div>
+
+      {/* Health Check & Clock Control */}
+      <Card className="border-none shadow-none bg-card rounded-2xl overflow-hidden border border-white/5">
+        <CardContent className="p-6 space-y-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 bg-primary rounded-full animate-pulse" />
+              <h4 className="text-sm font-black text-white opacity-60">오늘의 컨디션</h4>
+            </div>
+            <Badge className="bg-primary/20 text-primary border-none px-3 py-1 font-black text-[10px] tracking-widest shrink-0">
+              {todayAttendance ? (todayAttendance.clockOut ? 'WORK END' : 'WORKING') : 'BEFORE WORK'}
+            </Badge>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            {(['GOOD', 'NORMAL', 'BAD'] as const).map((status) => (
+              <button
+                key={status}
+                className={cn(
+                  "h-20 rounded-2xl font-black text-xs transition-all flex flex-col items-center justify-center gap-1 border border-white/5",
+                  (todayAttendance?.healthStatus || healthStatus) === status 
+                    ? "bg-primary/20 text-primary border-primary/30" 
+                    : "bg-white/5 text-muted-foreground hover:bg-white/10"
+                )}
+                onClick={() => handleUpdateHealth(status)}
+              >
+                <span className="text-2xl">{status === 'GOOD' ? '😊' : status === 'NORMAL' ? '😐' : '☹️'}</span>
+                <span className="tracking-tight text-[10px] font-black">{status === 'GOOD' ? '좋음' : status === 'NORMAL' ? '보통' : '나쁨'}</span>
+              </button>
+            ))}
+          </div>
+
+          {!todayAttendance ? (
+            <Button 
+              className="w-full h-14 bg-primary text-white hover:bg-primary/90 font-black text-lg rounded-2xl transition-all shadow-lg shadow-primary/20"
+              onClick={handleClockIn}
+            >
+              출근하기
+            </Button>
+          ) : !todayAttendance.clockOut ? (
+            <Button 
+              className="w-full h-14 bg-card text-white hover:bg-white/5 border border-white/10 font-black text-lg rounded-2xl transition-all"
+              onClick={handleClockOut}
+            >
+              퇴근하기
+            </Button>
+          ) : (
+            <div className="w-full h-14 flex items-center justify-center bg-white/5 rounded-2xl font-black text-base text-muted-foreground">
+              평안한 저녁 되세요!
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* SOS & Notifications */}
+      <div className="flex gap-4">
+        <Button 
+          variant="outline" 
+          className="flex-1 h-14 rounded-2xl bg-white/5 border-white/10 text-white font-black text-sm gap-2"
+          onClick={() => navigate('/notifications')}
+        >
+          <Bell className="w-4 h-4 text-primary" />
+          알림
+        </Button>
+        <Button 
+          variant="outline" 
+          className="flex-1 h-14 rounded-2xl bg-red-500/10 border-red-500/20 text-red-500 font-black text-sm gap-2"
+          onClick={handleSOS}
+          disabled={isSOSLoading}
+        >
+          <ShieldAlert className="w-4 h-4" />
+          {isSOSLoading ? '발생 중' : '긴급 SOS'}
+        </Button>
+      </div>
+
+      {/* Admin Quick Actions */}
+      {isManager && (
+        <div className="flex flex-col gap-3 pt-6">
+          <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest text-center">관리자 바로가기</p>
+          <div className="flex gap-3">
+             <Button 
+                variant="ghost" 
+                className="flex-1 bg-white/5 border border-white/5 rounded-2xl h-12 text-xs font-black text-white"
+                onClick={() => setIsNoticeDialogOpen(true)}
+             >
+               공지등록
+             </Button>
+             <Button 
+                variant="ghost" 
+                className="flex-1 bg-white/5 border border-white/5 rounded-2xl h-12 text-xs font-black text-white"
+                onClick={() => navigate('/accidents')}
+             >
+               사고보고
+             </Button>
+          </div>
+        </div>
       )}
 
-      <Card className="border-none shadow-2xl bg-primary text-white overflow-hidden relative active:scale-[0.99] transition-all rounded-[3rem] w-full group">
-        <div className="absolute top-0 right-0 w-48 h-48 bg-white/10 rounded-full -mr-20 -mt-20 blur-3xl group-hover:bg-white/20 transition-all duration-700" />
-        <CardContent className="p-8 space-y-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-white/10 backdrop-blur-md rounded-2xl flex items-center justify-center border border-white/20">
-                <Activity className="w-5 h-5" />
-              </div>
-              <div className="flex flex-col">
-                <span className="text-[10px] font-black text-white/60 uppercase tracking-widest leading-none mb-1">건명 통합 시스템</span>
-                <span className="text-lg font-black tracking-tighter leading-none whitespace-nowrap">실시간 근태 체크인</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button 
-                variant="destructive" 
-                size="sm"
-                onClick={handleSOS}
-                disabled={isSOSLoading}
-                className="h-10 px-4 rounded-xl bg-red-600 hover:bg-red-700 font-black text-[11px] gap-2 shadow-lg shadow-red-900/20 active:scale-95 transition-all outline-none border-none"
-              >
-                {isSOSLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <PhoneCall className="w-3.5 h-3.5" />}
-                긴급 SOS
-              </Button>
-              <Badge className="bg-white/20 backdrop-blur-md text-white border-none px-3 py-1 font-black text-[9px] uppercase tracking-widest">
-                {todayAttendance?.clockIn ? (todayAttendance.clockOut ? '업무 종료' : '근무 중') : '근무 전'}
-              </Badge>
-            </div>
-          </div>
-          
-          <div className="space-y-6">
-            <div className="space-y-3">
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/50 text-center">오늘의 건강상태 보고</p>
-              <div className="grid grid-cols-3 gap-3">
-                {(['GOOD', 'NORMAL', 'BAD'] as const).map((status) => (
-                  <button
-                    key={status}
-                    className={cn(
-                      "h-16 rounded-3xl font-black text-xs transition-with-all flex flex-col items-center justify-center gap-1 border-2",
-                      (todayAttendance?.healthStatus || healthStatus) === status 
-                        ? "bg-white text-primary border-white shadow-2xl scale-105" 
-                        : "bg-white/5 text-white border-white/10 hover:bg-white/10"
-                    )}
-                    onClick={() => handleUpdateHealth(status)}
-                  >
-                    <span className="text-xl">{status === 'GOOD' ? '😊' : status === 'NORMAL' ? '😐' : '☹️'}</span>
-                    <span className="uppercase tracking-widest text-[9px]">{status === 'GOOD' ? '좋음' : status === 'NORMAL' ? '보통' : '나쁨'}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {!todayAttendance ? (
-              <Button 
-                className="w-full h-16 bg-white text-primary hover:bg-slate-50 font-black text-xl rounded-[2rem] shadow-2xl transition-all active:scale-95"
-                onClick={handleClockIn}
-              >
-                출근하기
-              </Button>
-            ) : !todayAttendance.clockOut ? (
-              <Button 
-                className="w-full h-16 bg-white text-primary hover:bg-slate-50 font-black text-xl rounded-[2rem] shadow-2xl transition-all active:scale-95"
-                onClick={handleClockOut}
-              >
-                퇴근하기
-              </Button>
-            ) : (
-              <div className="w-full h-16 flex items-center justify-center bg-white/10 backdrop-blur-md rounded-[2rem] font-black text-base border border-white/20 text-white/80">
-                수고하셨습니다!
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-      
-      {/* Education/Training Card */}
-      <Card 
-        className="border-none shadow-xl bg-white rounded-[2.5rem] overflow-hidden w-full cursor-pointer group active:scale-[0.98] transition-all border border-slate-100/50"
-        onClick={() => navigate('/training')}
-      >
-        <CardContent className="p-0">
-          <div className="p-6 bg-emerald-50/30 flex items-center justify-between">
+      {/* Dialogs */}
+      <Dialog open={isNoticeDialogOpen} onOpenChange={setIsNoticeDialogOpen}>
+        <DialogContent className="bg-card border-white/10 rounded-3xl text-white">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-black flex items-center gap-2">
+              <Megaphone className="w-5 h-5 text-primary" /> 새 공지사항 등록
+            </DialogTitle>
+            <DialogDescription className="text-muted-foreground font-bold">전체 사원에게 공지합니다.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <Input 
+              value={newNotice.title} 
+              onChange={e => setNewNotice({...newNotice, title: e.target.value})}
+              placeholder="제목" className="bg-white/5 border-white/10 text-white rounded-xl h-12" 
+            />
+            <Textarea 
+              value={newNotice.content}
+              onChange={e => setNewNotice({...newNotice, content: e.target.value})}
+              placeholder="내용" className="bg-white/5 border-white/10 text-white rounded-xl min-h-[150px]" 
+            />
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-emerald-500 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-emerald-200 group-hover:scale-110 transition-transform">
-                <BookOpen className="w-6 h-6" />
-              </div>
-              <div>
-                <h4 className="text-base font-black text-slate-900 leading-tight tracking-tight">직무 교육 및 평가</h4>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Job Skill & Safety Training</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {isManager && (
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  className="w-8 h-8 rounded-lg text-emerald-600 hover:bg-emerald-100 transition-colors mr-1"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    navigate('/training-mgmt');
-                  }}
-                >
-                  <Plus className="w-4 h-4" />
-                </Button>
-              )}
-              <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center border border-slate-100 group-hover:bg-emerald-500 group-hover:text-white transition-colors">
-                <ChevronRight className="w-4 h-4" />
-              </div>
+               <div className="flex items-center gap-2">
+                  <input type="checkbox" checked={newNotice.isImportant} onChange={e => setNewNotice({...newNotice, isImportant: e.target.checked})} className="rounded bg-white/10 border-white/10" />
+                  <span className="text-xs font-bold">중요 공지</span>
+               </div>
+               <div className="flex items-center gap-2">
+                  <input type="checkbox" checked={newNotice.shouldNotify} onChange={e => setNewNotice({...newNotice, shouldNotify: e.target.checked})} className="rounded bg-white/10 border-white/10" />
+                  <span className="text-xs font-bold">푸시 알림</span>
+               </div>
             </div>
           </div>
-          <div className="px-6 py-4 flex items-center gap-6 border-t border-slate-100/50">
-             <div className="flex flex-col">
-               <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">나의 직무</span>
-               <span className="text-xs font-black text-emerald-600 tracking-tighter">{profile?.jobRole || '공통'}</span>
-             </div>
-             <div className="w-px h-6 bg-slate-100" />
-             <div className="flex flex-col">
-               <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">진행 현황</span>
-               <span className="text-xs font-black text-slate-900 tracking-tighter">교육 받기</span>
-             </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="border-none shadow-sm bg-white rounded-2xl overflow-hidden w-full">
-        <CardHeader className="p-5 pb-2 flex flex-row items-center justify-between bg-slate-50/50 border-b border-slate-100">
-          <CardTitle className="text-sm font-black flex items-center gap-2 tracking-tight whitespace-nowrap">
-            <div className="w-1.5 h-4 bg-primary rounded-full" />
-            공지사항
-          </CardTitle>
-          <div className="flex items-center gap-2">
-            {isManager && (
-              <Dialog open={isNoticeDialogOpen} onOpenChange={setIsNoticeDialogOpen}>
-                <DialogTrigger render={
-                  <Button variant="ghost" size="icon" className="w-8 h-8 rounded-lg text-primary hover:bg-primary/5 outline-none">
-                    <Plus className="w-4 h-4" />
-                  </Button>
-                } />
-                <DialogContent className="bg-white border-none rounded-[2rem] shadow-2xl max-w-lg w-[95%] p-0 overflow-hidden">
-                  <DialogHeader className="p-8 pb-4 bg-slate-50 border-b border-slate-100">
-                    <DialogTitle className="text-2xl font-black tracking-tighter flex items-center gap-2">
-                      <Megaphone className="w-6 h-6 text-primary" /> 공지사항 등록
-                    </DialogTitle>
-                    <DialogDescription className="text-slate-500 font-bold">전 사원에게 전달할 내용을 입력하세요.</DialogDescription>
-                  </DialogHeader>
-                  <div className="p-8 space-y-5">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">제목</label>
-                      <Input 
-                        value={newNotice.title}
-                        onChange={(e) => setNewNotice({...newNotice, title: e.target.value})}
-                        placeholder="공지 제목을 입력하세요"
-                        className="h-12 bg-slate-50 border-slate-200 rounded-xl font-bold"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">내용</label>
-                      <Textarea 
-                        value={newNotice.content}
-                        onChange={(e) => setNewNotice({...newNotice, content: e.target.value})}
-                        placeholder="공지 내용을 입력하세요"
-                        className="min-h-[150px] bg-slate-50 border-slate-200 rounded-xl font-bold"
-                      />
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <div className="flex items-center gap-2">
-                        <input 
-                          type="checkbox" 
-                          id="important" 
-                          checked={newNotice.isImportant}
-                          onChange={(e) => setNewNotice({...newNotice, isImportant: e.target.checked})}
-                          className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary"
-                        />
-                        <label htmlFor="important" className="text-xs font-black text-slate-600">긴급 공지로 설정</label>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <input 
-                          type="checkbox" 
-                          id="shouldNotify" 
-                          checked={newNotice.shouldNotify}
-                          onChange={(e) => setNewNotice({...newNotice, shouldNotify: e.target.checked})}
-                          className="w-4 h-4 rounded border-slate-300 text-[#0066CC] focus:ring-[#0066CC]"
-                        />
-                        <label htmlFor="shouldNotify" className="text-xs font-black text-[#0066CC]">푸시 알림 발송</label>
-                      </div>
-                    </div>
-                  </div>
-                  <DialogFooter className="p-8 pt-4 bg-slate-50 border-t border-slate-100 flex flex-row gap-3">
-                    <Button variant="outline" className="flex-1 h-12 rounded-xl font-black border-slate-200" onClick={() => setIsNoticeDialogOpen(false)}>취소</Button>
-                    <Button className="flex-1 h-12 rounded-xl font-black shadow-lg" onClick={handleAddNotice}>등록 완료</Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-            )}
-            <Button 
-              variant="link" 
-              className="h-auto p-0 text-primary font-black text-[10px] uppercase tracking-widest"
-              onClick={() => navigate('/notices')}
-            >
-              전체보기
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="p-0">
-          <div className="divide-y divide-slate-100">
-            {recentNotices.length > 0 ? recentNotices.map(notice => (
-              <div 
-                key={notice.id} 
-                className="p-5 active:bg-slate-50 transition-colors cursor-pointer group"
-                onClick={() => {
-                  setSelectedNotice(notice);
-                  if (profile?.uid) {
-                    grantRandomShipPart(profile.uid, '공지사항 확인');
-                  }
-                }}
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="space-y-1.5 flex-1">
-                    <div className="flex items-center gap-2 text-left">
-                      {notice.isImportant && (
-                        <span className="px-2 py-0.5 bg-red-500 text-white text-[8px] font-black rounded-full uppercase tracking-widest shadow-sm shadow-red-200">긴급</span>
-                      )}
-                      <h4 className="font-black text-sm text-slate-900 leading-tight tracking-tight">{notice.title}</h4>
-                    </div>
-                    <p className="text-xs text-slate-600 line-clamp-1 font-bold text-left">{notice.content}</p>
-                  </div>
-                  <div className="flex flex-col items-end gap-1">
-                    <span className="text-[10px] font-black text-slate-500 whitespace-nowrap pt-1 uppercase">{format(new Date(notice.createdAt), 'MM.dd')}</span>
-                    <ChevronRight className="w-4 h-4 text-slate-200 group-hover:text-primary transition-colors" />
-                  </div>
-                </div>
-              </div>
-            )) : (
-              <div className="p-10 text-center text-slate-500 text-xs font-black uppercase tracking-widest">공지사항이 없습니다.</div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Notice Detail Dialog */}
-      <Dialog open={!!selectedNotice} onOpenChange={(open) => !open && setSelectedNotice(null)}>
-        <DialogContent className="bg-white border-none rounded-[2rem] shadow-2xl max-w-[90vw] sm:max-w-md p-0 overflow-hidden">
-          {selectedNotice && (
-            <div className="flex flex-col">
-              <div className="p-8 bg-slate-50 border-b border-slate-100 flex flex-col items-center text-center gap-4">
-                <div className="w-16 h-16 bg-white rounded-[1.5rem] flex items-center justify-center text-primary shadow-sm border border-slate-100">
-                  <Megaphone className="w-8 h-8" />
-                </div>
-                <div className="space-y-1">
-                  {selectedNotice.isImportant && (
-                    <Badge className="bg-red-500 text-white text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest mb-1 border-none">IMPORTANT</Badge>
-                  )}
-                  <DialogTitle className="text-xl font-black tracking-tight text-slate-900">{selectedNotice.title}</DialogTitle>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                    {format(new Date(selectedNotice.createdAt), 'yyyy년 MM월 dd일 HH:mm', { locale: ko })}
-                  </p>
-                </div>
-              </div>
-              <div className="p-8 max-h-[50vh] overflow-y-auto no-scrollbar">
-                <p className="text-sm font-bold text-slate-600 leading-relaxed whitespace-pre-wrap">
-                  {selectedNotice.content}
-                </p>
-              </div>
-              <div className="p-8 pt-0 border-t border-slate-50 mt-auto">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-[10px] font-black text-slate-400 uppercase">
-                      {selectedNotice.authorName?.charAt(0)}
-                    </div>
-                    <div>
-                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none">작성자</p>
-                      <p className="text-xs font-black text-slate-900">{selectedNotice.authorName}</p>
-                    </div>
-                  </div>
-                </div>
-                <Button 
-                  onClick={() => setSelectedNotice(null)}
-                  className="w-full h-14 bg-slate-900 text-white rounded-2xl font-black tracking-widest active:scale-95 transition-all shadow-xl shadow-slate-200"
-                >
-                  확인
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-      
-      <Card className="border-none shadow-sm bg-white rounded-2xl overflow-hidden w-full">
-        <CardHeader className="p-5 pb-2 flex flex-row items-center justify-between bg-slate-50/50 border-b border-slate-100">
-          <div className="flex items-center justify-between w-full">
-            <CardTitle className="text-sm font-black flex items-center gap-2 tracking-tight whitespace-nowrap">
-              <div className="w-1.5 h-4 bg-red-500 rounded-full" />
-              사고즉보 (실시간 사고사례)
-            </CardTitle>
-            {canReportAccident && (
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                className="h-8 text-[10px] font-black uppercase tracking-widest text-primary gap-1"
-                onClick={() => navigate('/accidents')}
-              >
-                <Plus className="w-3 h-3" /> 사고 보고
-              </Button>
-            )}
-            <Button 
-              variant="link" 
-              className="h-auto p-0 text-red-500 font-black text-[10px] uppercase tracking-widest"
-              onClick={() => navigate('/accidents')}
-            >
-              전체보기
-            </Button>
-            <ShieldAlert className="w-4 h-4 text-red-500 animate-pulse ml-2" />
-          </div>
-        </CardHeader>
-        <CardContent className="p-0">
-          <div className="divide-y divide-slate-100">
-            {recentAccidents.length > 0 ? recentAccidents.map(accident => (
-              <div 
-                key={accident.id} 
-                className="p-5 active:bg-slate-50 transition-colors cursor-pointer"
-                onClick={() => {
-                  setSelectedAccident(accident);
-                  if (profile?.uid) {
-                    grantRandomShipPart(profile.uid, '사고 보고 확인');
-                  }
-                }}
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="space-y-1.5 flex-1">
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline" className={cn(
-                        "text-[8px] font-black border-none px-2 py-0.5 rounded-full uppercase tracking-widest",
-                        accident.severity === 'CRITICAL' ? "bg-red-500 text-white" :
-                        accident.severity === 'HIGH' ? "bg-orange-500 text-white" :
-                        accident.severity === 'MEDIUM' ? "bg-yellow-500 text-white" : "bg-blue-500 text-white"
-                      )}>
-                        {accident.severity === 'CRITICAL' ? '심각' : accident.severity === 'HIGH' ? '높음' : accident.severity === 'MEDIUM' ? '보통' : '낮음'}
-                      </Badge>
-                      <h4 className="font-black text-sm text-slate-900 leading-tight tracking-tight">{accident.title}</h4>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs text-slate-500 font-bold">
-                      <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {accident.date}</span>
-                      <span className="flex items-center gap-1"><Info className="w-3 h-3" /> {accident.location}</span>
-                    </div>
-                  </div>
-                  <Plus className="w-4 h-4 text-slate-300 group-hover:text-primary" />
-                </div>
-              </div>
-            )) : (
-              <div className="p-10 text-center text-slate-500 text-xs font-black uppercase tracking-widest">사고 기록이 없습니다.</div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Accident Detail Dialog */}
-      <Dialog open={!!selectedAccident} onOpenChange={(open) => !open && setSelectedAccident(null)}>
-        <DialogContent className="bg-white border-none rounded-[2rem] shadow-2xl max-w-lg w-[95%] p-0 overflow-hidden">
-          {selectedAccident && (
-            <>
-              <DialogHeader className="p-8 pb-4 bg-slate-50 border-b border-slate-100">
-                <div className="flex items-center gap-2 mb-2">
-                   <Badge className={cn(
-                    "text-[10px] font-black uppercase tracking-widest px-3 py-1",
-                    selectedAccident.severity === 'CRITICAL' ? "bg-red-600" :
-                    selectedAccident.severity === 'HIGH' ? "bg-orange-500" :
-                    selectedAccident.severity === 'MEDIUM' ? "bg-yellow-500" : "bg-blue-500"
-                  )}>
-                    {selectedAccident.severity === 'CRITICAL' ? '심각' : selectedAccident.severity === 'HIGH' ? '높음' : selectedAccident.severity === 'MEDIUM' ? '보통' : '낮음'}
-                  </Badge>
-                  <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest px-3 py-1">
-                    {selectedAccident.type}
-                  </Badge>
-                </div>
-                <DialogTitle className="text-2xl font-black tracking-tighter text-slate-900">
-                  {selectedAccident.title}
-                </DialogTitle>
-                <DialogDescription className="text-slate-500 font-bold">
-                  {selectedAccident.date} | {selectedAccident.location}
-                </DialogDescription>
-              </DialogHeader>
-              <div className="p-8 space-y-6 max-h-[60vh] overflow-y-auto">
-                <div className="space-y-3">
-                  <h5 className="text-[10px] font-black text-primary uppercase tracking-[0.2em]">사고 내용</h5>
-                  <div className="p-5 bg-slate-50 rounded-2xl text-sm font-bold text-slate-700 leading-relaxed whitespace-pre-wrap border border-slate-100">
-                    {selectedAccident.description}
-                  </div>
-                </div>
-                
-                {selectedAccident.measures && (
-                  <div className="space-y-3">
-                    <h5 className="text-[10px] font-black text-emerald-600 uppercase tracking-[0.2em]">조치 사항</h5>
-                    <div className="p-5 bg-emerald-50 rounded-2xl text-sm font-bold text-emerald-800 leading-relaxed whitespace-pre-wrap border border-emerald-100">
-                      {selectedAccident.measures}
-                    </div>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-100">
-                  <div>
-                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">보고자</p>
-                    <p className="font-bold text-slate-900">{selectedAccident.reportedBy}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">보고시간</p>
-                    <p className="font-bold text-slate-900">{format(new Date(selectedAccident.createdAt), 'yyyy.MM.dd HH:mm')}</p>
-                  </div>
-                </div>
-              </div>
-              <DialogFooter className="p-8 pt-4 bg-slate-50 border-t border-slate-100">
-                <Button className="w-full h-12 rounded-xl font-black shadow-lg" onClick={() => setSelectedAccident(null)}>
-                  닫기
-                </Button>
-              </DialogFooter>
-            </>
-          )}
+          <DialogFooter>
+            <Button onClick={handleAddNotice} className="w-full bg-primary text-white font-black h-12 rounded-xl">등록하기</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

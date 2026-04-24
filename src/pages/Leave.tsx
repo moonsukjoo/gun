@@ -2,17 +2,17 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/src/components/AuthProvider';
 import { db } from '@/src/firebase';
 import { collection, addDoc, query, where, onSnapshot, orderBy, doc, updateDoc, getDocs } from 'firebase/firestore';
-import { LeaveRequest, UserProfile, Notification } from '@/src/types';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { LeaveRequest } from '@/src/types';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
-import { Calendar } from 'lucide-react';
-import { format, addDays, subDays, startOfDay } from 'date-fns';
+import { Calendar, ChevronRight } from 'lucide-react';
+import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import { toast } from 'sonner';
 import { DayPicker } from 'react-day-picker';
-import 'react-day-picker/dist/style.css';
 import { cn } from '@/lib/utils';
 
 export const Leave: React.FC = () => {
@@ -25,17 +25,14 @@ export const Leave: React.FC = () => {
 
   useEffect(() => {
     if (!profile) return;
-
     const q = query(
       collection(db, 'leaveRequests'),
       where('uid', '==', profile.uid),
       orderBy('createdAt', 'desc')
     );
-
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setRequests(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as LeaveRequest)));
     });
-
     return () => unsubscribe();
   }, [profile]);
 
@@ -45,16 +42,14 @@ export const Leave: React.FC = () => {
       return;
     }
 
-    // Handle single day selection (to can be undefined)
     const startDate = selectedRange.from;
     const endDate = leaveType === 'ANNUAL' ? (selectedRange.to || selectedRange.from) : selectedRange.from;
 
-    // Calculate days
     let diffDays = 0;
     if (leaveType === 'ANNUAL') {
       const diffTime = Math.abs((endDate || startDate).getTime() - startDate.getTime());
       diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-    } else if (leaveType === 'AM_HALF' || leaveType === 'PM_HALF') {
+    } else {
       diffDays = 0.5;
     }
 
@@ -65,7 +60,6 @@ export const Leave: React.FC = () => {
 
     setIsSubmitting(true);
     try {
-      // 1. Create Leave Request
       await addDoc(collection(db, 'leaveRequests'), {
         uid: profile.uid,
         type: leaveType,
@@ -76,41 +70,34 @@ export const Leave: React.FC = () => {
         createdAt: new Date().toISOString()
       });
 
-      // 2. Deduct from balance
       await updateDoc(doc(db, 'users', profile.uid), {
         annualLeaveBalance: (profile.annualLeaveBalance || 0) - diffDays
       });
 
-      // 3. Send notifications to managers
       const managersQuery = query(
         collection(db, 'users'),
         where('role', 'in', ['CEO', 'DIRECTOR', 'GENERAL_AFFAIRS', 'GENERAL_MANAGER'])
       );
       const managersSnapshot = await getDocs(managersQuery);
-      
       const uniqueManagers = Array.from(new Set(managersSnapshot.docs.map(m => m.id)));
-
-      const typeLabel = leaveType === 'ANNUAL' ? '연차' : leaveType === 'AM_HALF' ? '오전반차' : '오후반차';
+      const typeLabel = leaveType === 'ANNUAL' ? '연차' : '반차';
 
       for (const managerId of uniqueManagers) {
         if (managerId === profile.uid) continue;
         await addDoc(collection(db, 'notifications'), {
           uid: managerId,
           title: `${typeLabel} 신청 알림`,
-          message: `${profile.displayName}님이 ${format(startDate, 'MM/dd')}${leaveType === 'ANNUAL' && startDate !== endDate ? ' ~ ' + format(endDate!, 'MM/dd') : ''} ${typeLabel}를 사용합니다. (사유: ${reason.trim()})`,
+          message: `${profile.displayName}님이 ${format(startDate, 'MM/dd')} ${typeLabel}를 사용합니다.`,
           type: 'LEAVE_REMINDER',
           isRead: false,
-          createdAt: new Date().toISOString(),
-          fromUid: profile.uid,
-          fromName: profile.displayName
+          createdAt: new Date().toISOString()
         });
       }
 
-      toast.success(`${typeLabel} 신청이 완료되었습니다.`);
+      toast.success('신청이 완료되었습니다.');
       setSelectedRange({ from: undefined, to: undefined });
       setReason('');
     } catch (error) {
-      console.error("Error submitting leave:", error);
       toast.error('연차 신청 중 오류가 발생했습니다.');
     } finally {
       setIsSubmitting(false);
@@ -118,148 +105,109 @@ export const Leave: React.FC = () => {
   };
 
   return (
-    <div className="max-w-5xl mx-auto px-4 space-y-8 pb-10">
-      <header className="flex flex-col gap-1">
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-6 bg-primary rounded-full" />
-          <h2 className="text-3xl font-black tracking-tighter text-slate-900">연차 관리</h2>
-        </div>
-        <p className="text-[11px] text-slate-500 font-bold uppercase tracking-[0.2em] ml-4">연차 현황 및 신청 관리</p>
+    <div className="space-y-6 pb-24 px-1">
+      <header className="py-6">
+        <h2 className="text-3xl font-black tracking-tight text-white leading-tight">연차 관리</h2>
+        <p className="text-muted-foreground font-bold">휴가와 반차를 신청하고 관리하세요</p>
       </header>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="space-y-6">
-          <Card className="border-none shadow-sm bg-white rounded-3xl overflow-hidden">
-            <CardHeader className="p-6 pb-2">
-              <CardTitle className="text-lg font-black tracking-tight flex items-center gap-2">
-                <Calendar className="w-5 h-5 text-primary" /> 연차 신청
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-6 space-y-6">
-              <div className="bg-slate-100 p-4 rounded-2xl flex items-center justify-between border border-slate-200">
-                <span className="text-xs font-black text-slate-500 uppercase tracking-widest">나의 잔여 연차</span>
-                <span className="text-2xl font-black text-primary tracking-tighter">{profile?.annualLeaveBalance || 0}일</span>
-              </div>
-
-              <div className="space-y-3">
-                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">신청 종류</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { id: 'ANNUAL', label: '연차' },
-                    { id: 'AM_HALF', label: '오전반차' },
-                    { id: 'PM_HALF', label: '오후반차' },
-                  ].map((type) => (
-                    <button
-                      key={type.id}
-                      onClick={() => setLeaveType(type.id as any)}
-                      className={cn(
-                        "py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border-2",
-                        leaveType === type.id 
-                          ? "bg-primary border-primary text-white shadow-lg" 
-                          : "bg-slate-50 border-slate-100 text-slate-400 hover:bg-slate-100 hover:border-slate-200"
-                      )}
-                    >
-                      {type.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">날짜 선택</label>
-                <div className="border border-slate-200 rounded-3xl p-1 sm:p-4 bg-white flex justify-center overflow-x-auto">
-                  {leaveType === 'ANNUAL' ? (
-                    <DayPicker
-                      mode="range"
-                      selected={{ from: selectedRange.from, to: selectedRange.to }}
-                      onSelect={(range) => setSelectedRange({ from: range?.from, to: range?.to })}
-                      locale={ko}
-                      className="m-0 max-w-full"
-                      modifiersStyles={{
-                        selected: { backgroundColor: 'var(--color-primary)', color: 'white' }
-                      }}
-                    />
-                  ) : (
-                    <DayPicker
-                      mode="single"
-                      selected={selectedRange.from}
-                      onSelect={(day) => setSelectedRange({ from: day, to: day })}
-                      locale={ko}
-                      className="m-0 max-w-full"
-                      modifiersStyles={{
-                        selected: { backgroundColor: 'var(--color-primary)', color: 'white' }
-                      }}
-                    />
-                  )}
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">사용 목적</label>
-                <Textarea 
-                  placeholder="연차 사용 목적을 입력해주세요."
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                  className="min-h-[100px] bg-slate-50 border-slate-200 rounded-2xl font-bold text-sm focus:ring-primary/10 text-slate-900"
-                />
-              </div>
-
-              <Button 
-                className="w-full h-14 rounded-2xl font-black text-base shadow-lg shadow-primary/20 active:scale-95 transition-all"
-                onClick={handleSubmit}
-                disabled={isSubmitting}
-              >
-                {isSubmitting ? '처리 중...' : '연차 신청 및 저장하기'}
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="space-y-6">
-          <div className="flex items-center justify-between px-1">
-            <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-[0.2em]">최근 신청 내역</h3>
-            <div className="h-px flex-1 bg-slate-200 ml-4" />
+      <div className="space-y-6">
+        <div className="bg-card p-6 rounded-2xl border border-white/5 space-y-8">
+          <div className="bg-white/5 p-5 rounded-2xl flex items-center justify-between">
+            <div className="flex flex-col">
+              <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">사용 가능 연차</span>
+              <span className="text-2xl font-black text-white">{profile?.annualLeaveBalance || 0}일</span>
+            </div>
+            <div className="w-12 h-12 bg-primary/20 rounded-2xl flex items-center justify-center text-primary">
+              <Calendar className="w-6 h-6" />
+            </div>
           </div>
 
           <div className="space-y-4">
-            {requests.length > 0 ? (
-              requests.map((req) => (
-                <Card key={req.id} className="border-none shadow-sm bg-white rounded-2xl overflow-hidden card-hover">
-                  <CardContent className="p-5 flex items-center justify-between">
-                    <div className="space-y-1">
-                      <div className="font-black text-slate-900 tracking-tight flex items-center gap-2 text-sm sm:text-base">
-                        {req.startDate} {req.startDate !== req.endDate && `~ ${req.endDate}`}
-                        <span className={cn(
-                          "text-[9px] px-2 py-0.5 rounded-full",
-                          req.type === 'AM_HALF' ? "bg-blue-100 text-blue-600" :
-                          req.type === 'PM_HALF' ? "bg-orange-100 text-orange-600" :
-                          "bg-slate-100 text-slate-600"
-                        )}>
-                          {req.type === 'ANNUAL' ? '연차' : req.type === 'AM_HALF' ? '오전반차' : req.type === 'PM_HALF' ? '오후반차' : '기타'}
-                        </span>
-                      </div>
-                      <div className="text-xs text-slate-600 font-bold">{req.reason}</div>
-                    </div>
-                    <div className="text-right flex-shrink-0 ml-4">
-                      <div className="text-[10px] font-black text-emerald-600 bg-emerald-100 px-2 py-1 rounded-full uppercase tracking-widest">
-                        {req.status === 'APPROVED' ? '승인됨' : req.status}
-                      </div>
-                      <div className="text-[9px] text-slate-400 font-bold mt-1">
-                        {format(new Date(req.createdAt), 'yyyy.MM.dd')}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))
-            ) : (
-              <div className="py-20 text-center space-y-4 bg-white rounded-3xl border border-dashed border-slate-200">
-                <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto text-slate-300">
-                  <Calendar className="w-8 h-8" />
-                </div>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">신청 내역이 없습니다</p>
-              </div>
-            )}
+             <div className="grid grid-cols-3 gap-2 p-1 bg-white/5 rounded-2xl">
+                {['ANNUAL', 'AM_HALF', 'PM_HALF'].map((type) => (
+                  <button
+                    key={type}
+                    onClick={() => setLeaveType(type as any)}
+                    className={cn(
+                      "h-12 rounded-xl text-xs font-black transition-all",
+                      leaveType === type ? "bg-white text-black shadow-lg" : "text-muted-foreground hover:text-white"
+                    )}
+                  >
+                    {type === 'ANNUAL' ? '연차' : type === 'AM_HALF' ? '오전반차' : '오후반차'}
+                  </button>
+                ))}
+             </div>
           </div>
+
+          <div className="space-y-4">
+             <div className="bg-white/5 border border-white/5 rounded-2xl p-4 flex justify-center">
+                <style>{`
+                  .rdp { --rdp-cell-size: 44px; margin: 0; width: 100%; }
+                  .rdp-caption { padding-left: 12px; padding-right: 8px; }
+                  .rdp-caption_label { color: #fff; font-weight: 900; font-size: 1rem; display: flex; align-items: center; justify-content: flex-start; gap: 4px; }
+                  .rdp-head_cell { color: #ffffff40; font-weight: 900; font-size: 0.7rem; }
+                  .rdp-day { color: #ffffff; font-weight: 700; font-size: 0.9rem; }
+                  .rdp-day_selected { background-color: var(--color-primary) !important; color: white !important; font-weight: 900; border-radius: 12px; }
+                  .rdp-day_today { color: var(--color-primary) !important; }
+                  .rdp-button:hover:not([disabled]):not(.rdp-day_selected) { background-color: #ffffff10; border-radius: 12px; }
+                `}</style>
+                {leaveType === 'ANNUAL' ? (
+                  <DayPicker 
+                    mode="range"
+                    selected={selectedRange as any}
+                    onSelect={(range: any) => setSelectedRange({ from: range?.from, to: range?.to })}
+                    locale={ko}
+                  />
+                ) : (
+                  <DayPicker 
+                    mode="single"
+                    selected={selectedRange.from}
+                    onSelect={(date: any) => setSelectedRange({ from: date, to: date })}
+                    locale={ko}
+                  />
+                )}
+             </div>
+          </div>
+
+          <div className="space-y-4">
+            <Textarea 
+              placeholder="사유를 입력해 주세요"
+              value={reason}
+              onChange={e => setReason(e.target.value)}
+              className="min-h-[120px] bg-white/5 border-white/10 rounded-2xl text-white font-bold placeholder:text-muted-foreground/30"
+            />
+          </div>
+
+          <Button 
+            className="w-full h-16 bg-primary text-white font-black rounded-3xl text-lg shadow-lg shadow-primary/20 active:scale-[0.98] transition-all"
+            onClick={handleSubmit}
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? '처리 중' : '신청하기'}
+          </Button>
+        </div>
+
+        <div className="space-y-4">
+           <h3 className="text-xs font-black text-muted-foreground uppercase tracking-widest px-1">최근 내역</h3>
+           <div className="space-y-2">
+             {requests.map(req => (
+               <div key={req.id} className="bg-card p-5 rounded-2xl border border-white/5 flex items-center justify-between">
+                  <div className="space-y-1 overflow-hidden">
+                     <p className="text-sm font-black text-white truncate">
+                        {req.startDate}{req.startDate !== req.endDate ? ` ~ ${req.endDate}` : ''}
+                     </p>
+                     <div className="flex items-center gap-2">
+                        <Badge className="bg-primary/20 text-primary border-none rounded-lg px-2 h-5 text-[10px] font-black">
+                           {req.type === 'ANNUAL' ? '연차' : '반차'}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground font-bold truncate">{req.reason}</span>
+                     </div>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-white/10 shrink-0" />
+               </div>
+             ))}
+           </div>
         </div>
       </div>
     </div>

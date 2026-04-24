@@ -23,8 +23,8 @@ messaging.onBackgroundMessage((payload) => {
   const notificationTitle = payload.notification.title;
   const notificationOptions = {
     body: payload.notification.body,
-    icon: 'https://picsum.photos/seed/korea-factory/192/192',
-    badge: 'https://picsum.photos/seed/korea-factory/192/192',
+    icon: '/company_logo.png',
+    badge: '/company_logo.png',
     vibrate: [200, 100, 200],
     data: {
       url: payload.data?.url || '/'
@@ -41,8 +41,8 @@ self.addEventListener('push', function(event) {
       const data = event.data.json();
       const options = {
         body: data.body || data.notification?.body,
-        icon: 'https://picsum.photos/seed/korea-factory/192/192',
-        badge: 'https://picsum.photos/seed/korea-factory/192/192',
+        icon: '/company_logo.png',
+        badge: '/company_logo.png',
         vibrate: [100, 50, 100],
         data: { url: data.url || '/' }
       };

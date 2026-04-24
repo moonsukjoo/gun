@@ -11,7 +11,10 @@ function Sheet({ ...props }: SheetPrimitive.Root.Props) {
   return <SheetPrimitive.Root data-slot="sheet" {...props} />
 }
 
-function SheetTrigger({ ...props }: SheetPrimitive.Trigger.Props) {
+function SheetTrigger({ asChild, ...props }: SheetPrimitive.Trigger.Props & { asChild?: boolean }) {
+  if (asChild && React.isValidElement(props.children)) {
+    return <SheetPrimitive.Trigger data-slot="sheet-trigger" render={props.children} {...props} children={undefined} />
+  }
   return <SheetPrimitive.Trigger data-slot="sheet-trigger" {...props} />
 }
 

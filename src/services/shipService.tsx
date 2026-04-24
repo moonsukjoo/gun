@@ -97,13 +97,13 @@ export async function grantRandomShipPart(uid: string, actionName: string) {
           initial={{ scale: 0.5, opacity: 0, y: 20 }}
           animate={{ scale: 1, opacity: 1, y: 0 }}
           exit={{ scale: 0.8, opacity: 0 }}
-          className="bg-white rounded-[2.5rem] p-8 shadow-2xl border-4 border-[#0066CC]/20 flex flex-col items-center text-center gap-6 pointer-events-auto max-w-sm ring-1 ring-black/5"
+          className="bg-card rounded-[2.5rem] p-8 shadow-2xl border border-white/10 flex flex-col items-center text-center gap-6 pointer-events-auto max-w-sm ring-1 ring-white/5"
         >
           <div className="relative">
-            <div className="w-24 h-24 bg-[#0066CC] rounded-[2.5rem] flex items-center justify-center shadow-xl shadow-[#0066CC]/30 border-4 border-white/20">
+            <div className="w-24 h-24 bg-primary rounded-[2.5rem] flex items-center justify-center shadow-xl shadow-primary/30 border-4 border-white/20">
               <PartIcon className="w-12 h-12 text-white" />
             </div>
-            <div className="absolute -top-2 -right-2 w-10 h-10 bg-yellow-400 rounded-full flex items-center justify-center border-4 border-white shadow-lg animate-bounce">
+            <div className="absolute -top-2 -right-2 w-10 h-10 bg-yellow-400 rounded-full flex items-center justify-center border-4 border-[#121212] shadow-lg animate-bounce">
               <Sparkles className="w-5 h-5 text-white" />
             </div>
             {count > 1 && (
@@ -114,19 +114,19 @@ export async function grantRandomShipPart(uid: string, actionName: string) {
           </div>
 
           <div className="space-y-3">
-            <span className="text-[11px] font-black text-[#0066CC] uppercase tracking-[0.4em] block bg-[#0066CC]/5 py-2 px-4 rounded-full">Reward Found</span>
-            <h3 className="text-3xl font-black text-slate-900 leading-tight tracking-tighter">함선 부품 획득!</h3>
-            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200">
-              <p className="text-sm font-bold text-slate-700">
-                <span className="text-slate-500">[{actionName}] 활동 보상</span><br />
-                <span className="text-[#0066CC] font-black text-lg">{randomPart.name}</span>을(를) 찾았습니다.
+            <span className="text-[11px] font-black text-primary uppercase tracking-[0.4em] block bg-primary/5 py-2 px-4 rounded-full">Reward Found</span>
+            <h3 className="text-3xl font-black text-white leading-tight tracking-tighter">함선 부품 획득!</h3>
+            <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
+              <p className="text-sm font-bold text-white/80">
+                <span className="text-white/40">[{actionName}] 활동 보상</span><br />
+                <span className="text-primary font-black text-lg">{randomPart.name}</span>을(를) 찾았습니다.
               </p>
             </div>
           </div>
 
           <button 
             onClick={() => toast.dismiss(t)}
-            className="w-full h-14 bg-slate-900 text-white rounded-2xl font-black text-sm active:scale-95 transition-all shadow-xl shadow-slate-200"
+            className="w-full h-14 bg-primary text-white rounded-2xl font-black text-sm active:scale-95 transition-all shadow-xl shadow-primary/20"
           >
             확인
           </button>
