@@ -41,14 +41,14 @@ export const sendPushNotification = async (title: string, options: NotificationO
     const registration = await navigator.serviceWorker.ready;
     if (registration) {
       registration.showNotification(title, {
-        icon: '/company_logo.png',
-        badge: '/company_logo.png',
+        icon: 'company_logo.png',
+        badge: 'company_logo.png',
         ...navOptions,
       });
     } else {
       new Notification(title, {
-        icon: '/company_logo.png',
-        badge: '/company_logo.png',
+        icon: 'company_logo.png',
+        badge: 'company_logo.png',
         ...navOptions,
       });
     }

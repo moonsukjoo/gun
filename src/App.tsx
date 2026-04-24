@@ -42,7 +42,7 @@ const ProtectedRoute = ({ children, roles, permission }: { children: React.React
         
         {/* Core Logo Container */}
         <div className="relative w-20 h-20 bg-white rounded-[2rem] shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center justify-center p-5 z-10">
-          <img src="/company_logo.png" alt="Company Logo" className="w-full h-full object-contain" />
+          <img src="company_logo.png" alt="Company Logo" className="w-full h-full object-contain" />
         </div>
       </div>
       <div className="flex flex-col items-center text-center space-y-4">

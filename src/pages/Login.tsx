@@ -106,7 +106,7 @@ export const Login: React.FC = () => {
         <div className="w-full max-w-sm flex flex-col h-full space-y-12 animate-in fade-in duration-700">
            <div className="flex flex-col items-center gap-6 py-10">
               <div className="w-20 h-20 bg-white rounded-3xl p-3 shadow-2xl flex items-center justify-center">
-                 <img src="/company_logo.png" alt="logo" className="w-full h-full object-contain" />
+                  <img src="company_logo.png" alt="logo" className="w-full h-full object-contain" />
               </div>
               <div className="text-center space-y-2">
                  <h2 className="text-2xl font-black text-white">{rememberedName}님,</h2>
@@ -125,7 +125,7 @@ export const Login: React.FC = () => {
         <div className="w-full max-w-sm space-y-10 animate-in fade-in slide-in-from-bottom-6 duration-700">
            <div className="flex flex-col gap-4 text-center">
               <div className="w-16 h-16 bg-white rounded-2xl mx-auto p-3 shadow-xl flex items-center justify-center border border-white/10">
-                 <img src="/company_logo.png" alt="logo" className="w-full h-full object-contain" />
+                 <img src="company_logo.png" alt="logo" className="w-full h-full object-contain" />
               </div>
               <div className="space-y-1">
                  <h1 className="text-3xl font-black text-white tracking-tighter">건명기업 <span className="text-primary">HRM</span></h1>

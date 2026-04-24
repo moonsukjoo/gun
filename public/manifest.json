@@ -3,12 +3,12 @@
   "name": "건명 통합 안전/근태 관리 시스템",
   "icons": [
     {
-      "src": "/company_logo.png",
+      "src": "company_logo.png",
       "type": "image/png",
       "sizes": "192x192"
     },
     {
-      "src": "/company_logo.png",
+      "src": "company_logo.png",
       "type": "image/png",
       "sizes": "512x512"
     }
