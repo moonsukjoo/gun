@@ -18,11 +18,16 @@ import {
   ChevronRight,
   BookOpen,
   TrendingUp,
-  TrendingDown
+  TrendingDown,
+  LayoutDashboard,
+  ListTodo,
+  CheckCircle,
+  Users,
+  AlertTriangle
 } from 'lucide-react';
 import { db } from '@/src/firebase';
-import { collection, query, where, onSnapshot, addDoc, updateDoc, doc, limit, orderBy, getDocs } from 'firebase/firestore';
-import { Attendance, Notice, Role, AccidentCase, LeaveRequest } from '@/src/types';
+import { collection, query, where, onSnapshot, addDoc, updateDoc, doc, limit, orderBy, getDocs, Timestamp } from 'firebase/firestore';
+import { Attendance, Notice, Role, AccidentCase, LeaveRequest, Task } from '@/src/types';
 import { format, startOfMonth, subMonths } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import { toast } from 'sonner';
@@ -56,7 +61,16 @@ export const Dashboard: React.FC = () => {
   const [userTrend, setUserTrend] = useState<number>(0);
   const [isSOSLoading, setIsSOSLoading] = useState(false);
 
-  const isManager = profile && (['CEO', 'SAFETY_MANAGER'].includes(profile.role) || profile.permissions?.includes('notice_mgmt'));
+  const [myTasks, setMyTasks] = useState<Task[]>([]);
+  const [adminStats, setAdminStats] = useState({
+    totalEmployees: 0,
+    presentToday: 0,
+    pendingLeaves: 0,
+    openAccidents: 0
+  });
+  const [pendingTrainings, setPendingTrainings] = useState(0);
+
+  const isManager = profile && (['CEO', 'DIRECTOR', 'GENERAL_MANAGER', 'SAFETY_MANAGER', 'GENERAL_AFFAIRS'].includes(profile.role) || profile.permissions?.includes('notice_mgmt'));
   const canReportAccident = profile && (['CEO', 'SAFETY_MANAGER'].includes(profile.role) || profile.permissions?.includes('accident_mgmt'));
 
   useEffect(() => {
@@ -78,7 +92,7 @@ export const Dashboard: React.FC = () => {
       } else {
         setTodayAttendance(null);
       }
-    });
+    }, (error) => console.error("Attendance listener error:", error));
 
     const noticeQ = query(
       collection(db, 'notices'),
@@ -88,7 +102,7 @@ export const Dashboard: React.FC = () => {
 
     const unsubscribeNotices = onSnapshot(noticeQ, (snapshot) => {
       setRecentNotices(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Notice)));
-    });
+    }, (error) => console.error("Notices listener error:", error));
 
     const accidentQ = query(
       collection(db, 'accidentCases'),
@@ -97,7 +111,7 @@ export const Dashboard: React.FC = () => {
     );
     const unsubscribeAccidents = onSnapshot(accidentQ, (snapshot) => {
       setRecentAccidents(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AccidentCase)));
-    });
+    }, (error) => console.error("Accidents listener error:", error));
 
     const trendQ = query(
       collection(db, 'safetyScoreLogs'),
@@ -121,15 +135,84 @@ export const Dashboard: React.FC = () => {
         }
       });
       setUserTrend(currentMonthDelta - prevMonthDelta);
+    }, (error) => console.error("Trend listener error:", error));
+
+    // Fetch My Tasks for employees
+    const tasksQ = query(
+      collection(db, 'tasks'),
+      where('assignedToUid', '==', profile.uid),
+      where('status', 'in', ['TODO', 'IN_PROGRESS']),
+      orderBy('createdAt', 'desc'),
+      limit(5)
+    );
+    const unsubscribeTasks = onSnapshot(tasksQ, (snapshot) => {
+      setMyTasks(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Task)));
+    }, (error) => console.error("Tasks listener error:", error));
+
+    // Fetch training status for employees
+    const trainingQ = query(collection(db, 'trainings'), where('status', '==', 'PUBLISHED'));
+    const resultQ = query(collection(db, 'trainingResults'), where('uid', '==', profile.uid));
+    
+    getDocs(trainingQ).then(tSnap => {
+      getDocs(resultQ).then(rSnap => {
+        const completedIds = new Set(rSnap.docs.map(doc => doc.data().trainingId));
+        const pending = tSnap.docs.filter(doc => !completedIds.has(doc.id)).length;
+        setPendingTrainings(pending);
+      });
     });
+
+    // Fetch Admin Stats if manager
+    let unsubscribeAdminStats = () => {};
+    // Ensure we only run these if profile is loaded and role is identified
+    if (isManager && profile?.role && profile.role !== 'EMPLOYEE') {
+      // 1. Total Employees
+      getDocs(collection(db, 'users')).then(snap => {
+        setAdminStats(prev => ({ ...prev, totalEmployees: snap.size }));
+      }).catch(err => console.error("Users list error", err));
+
+      // 2. Present Today
+      const todayInQ = query(collection(db, 'attendance'), where('date', '==', today));
+      const unsubAttendance = onSnapshot(todayInQ, (snap) => {
+        setAdminStats(prev => ({ ...prev, presentToday: snap.size }));
+      }, (err) => console.error("Attendance stats error", err));
+
+      // 3. Pending Leaves
+      const leaveQ = query(collection(db, 'leaveRequests'), where('status', '==', 'PENDING'));
+      const unsubLeaves = onSnapshot(leaveQ, (snap) => {
+        setAdminStats(prev => ({ ...prev, pendingLeaves: snap.size }));
+      }, (err) => console.error("Leave stats error", err));
+
+      // 4. Open Accident Reports
+      const accidentCheckQ = query(collection(db, 'accidentCases'), orderBy('createdAt', 'desc'), limit(10));
+      const unsubAccidents = onSnapshot(accidentCheckQ, (snap) => {
+        setAdminStats(prev => ({ ...prev, openAccidents: snap.size }));
+      }, (err) => console.error("Accident stats error", err));
+
+      unsubscribeAdminStats = () => {
+        unsubAttendance();
+        unsubLeaves();
+        unsubAccidents();
+      };
+    }
 
     return () => {
       unsubscribeAttendance();
       unsubscribeNotices();
       unsubscribeAccidents();
       unsubscribeTrend();
+      unsubscribeTasks();
+      unsubscribeAdminStats();
     };
-  }, [profile]);
+  }, [profile, isManager]);
+
+  const handleUpdateTaskStatus = async (taskId: string, newStatus: 'TODO' | 'IN_PROGRESS' | 'DONE') => {
+    try {
+      await updateDoc(doc(db, 'tasks', taskId), { status: newStatus });
+      toast.success('작업 상태가 업데이트되었습니다.');
+    } catch (error) {
+      toast.error('상태 업데이트 중 오류가 발생했습니다.');
+    }
+  };
 
   const sendHealthNotification = async (status: 'GOOD' | 'NORMAL' | 'BAD') => {
     if (!profile) return;
@@ -342,6 +425,66 @@ export const Dashboard: React.FC = () => {
           안전한 하루가 되세요
         </h1>
       </div>
+
+      {/* Admin Dashboard Statistics */}
+      {isManager && (
+        <div className="grid grid-cols-2 gap-3">
+          <Card className="bg-card border-white/5 rounded-2xl p-4 overflow-hidden relative">
+            <div className="absolute top-0 right-0 p-3 opacity-10">
+              <Users className="w-10 h-10 text-primary" />
+            </div>
+            <p className="text-[10px] font-black text-muted-foreground mb-1 uppercase tracking-widest">출근 현황</p>
+            <p className="text-2xl font-black text-white">
+              {adminStats.presentToday} <span className="text-xs font-bold text-muted-foreground">/ {adminStats.totalEmployees}</span>
+            </p>
+          </Card>
+          <Card className="bg-card border-white/5 rounded-2xl p-4 overflow-hidden relative" onClick={() => navigate('/leave')} style={{ cursor: 'pointer' }}>
+            <div className="absolute top-0 right-0 p-3 opacity-10">
+              <CalendarDays className="w-10 h-10 text-amber-500" />
+            </div>
+            <p className="text-[10px] font-black text-muted-foreground mb-1 uppercase tracking-widest">연차 승인 대기</p>
+            <p className="text-2xl font-black text-amber-500">{adminStats.pendingLeaves}</p>
+          </Card>
+        </div>
+      )}
+
+      {/* Employee Task List */}
+      {!isManager && (
+        <Card className="bg-card border-white/5 rounded-2xl overflow-hidden">
+          <div className="p-5 flex items-center justify-between border-b border-white/5">
+             <div className="flex items-center gap-2">
+                <ListTodo className="w-4 h-4 text-primary" />
+                <h4 className="text-sm font-black text-white">오늘의 할 일</h4>
+             </div>
+             {myTasks.length > 0 && <span className="text-[10px] font-black bg-primary/20 text-primary px-2 py-0.5 rounded-full">{myTasks.length}건</span>}
+          </div>
+          <CardContent className="p-0">
+            {myTasks.length > 0 ? (
+              <div className="divide-y divide-white/5">
+                {myTasks.map(task => (
+                  <div key={task.id} className="p-4 flex items-center justify-between group hover:bg-white/5 transition-colors">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-sm font-bold text-white leading-tight">{task.title}</span>
+                      <span className="text-[10px] text-muted-foreground font-medium">{task.description}</span>
+                    </div>
+                    <button 
+                      onClick={() => handleUpdateTaskStatus(task.id, 'DONE')}
+                      className="w-10 h-10 rounded-xl bg-white/5 border border-white/5 flex items-center justify-center text-muted-foreground hover:bg-primary/20 hover:text-primary transition-all active:scale-90"
+                    >
+                      <CheckCircle className="w-5 h-5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="p-8 text-center bg-white/5 flex flex-col items-center gap-2">
+                <CheckCircle className="w-8 h-8 text-muted-foreground opacity-20" />
+                <p className="text-xs font-bold text-muted-foreground">현재 예정된 작업이 없습니다.</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Attendance & Leave Quick Actions */}
       <div className="space-y-3">

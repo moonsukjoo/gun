@@ -31,7 +31,8 @@ import {
   Eye,
   EyeOff,
   HardHat,
-  CircleDollarSign
+  CircleDollarSign,
+  Clock
 } from 'lucide-react';
 import { db } from '@/src/firebase';
 import { collection, query, onSnapshot, updateDoc, doc, setDoc } from 'firebase/firestore';
@@ -49,6 +50,7 @@ const PERMISSIONS = [
   { id: 'dept_mgmt', label: '조직 관리', icon: CheckCircle2 },
   { id: 'praise_coupon', label: '칭찬쿠폰/룰렛 관리', icon: Trophy },
   { id: 'redemption_mgmt', label: '현물 신청 관리', icon: CircleDollarSign },
+  { id: 'attendance_mgmt', label: '근태 관리', icon: Clock },
 ];
 
 export const Admin: React.FC = () => {
@@ -122,6 +124,7 @@ export const Admin: React.FC = () => {
     { to: '/safety-score', label: '안전지수 점수 관리', icon: ShieldCheck, roles: ['CEO', 'SAFETY_MANAGER'] },
     { to: '/coupons', label: '칭찬쿠폰/룰렛 관리', icon: Trophy, permission: 'praise_coupon' },
     { to: '/redemption-mgmt', label: '현물 신청 관리', icon: CircleDollarSign, permission: 'redemption_mgmt' },
+    { to: '/attendance-mgmt', label: '근태 관리', icon: Clock, permission: 'attendance_mgmt' },
     { to: '/leave', label: '연차/휴가 관리', icon: CalendarDays, permission: 'leave_mgmt' },
     { to: '/notifications', label: '공지사항 관리', icon: Megaphone, permission: 'notice_mgmt' },
     { to: '/accidents', label: '사고즉보 관리', icon: ShieldAlert, permission: 'accident_mgmt' },
@@ -190,41 +193,81 @@ export const Admin: React.FC = () => {
               <DialogTitle className="font-black mb-4">권한 관리</DialogTitle>
               <div className="relative">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
-                <Input placeholder="사용자 검색..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="bg-white/5 border-none h-12 pl-11 rounded-xl" />
+                <Input 
+                  placeholder="사용자 검색..." 
+                  value={searchTerm} 
+                  onChange={e => setSearchTerm(e.target.value)} 
+                  className="bg-white/5 border-none h-12 pl-11 rounded-xl" 
+                />
               </div>
            </div>
            <div className="p-4 flex-1 overflow-y-auto space-y-2">
-              {selectedUser ? (
-                <div className="space-y-4">
-                   <div className="bg-white/5 p-4 rounded-2xl flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                         <div className="w-10 h-10 bg-primary/20 text-primary rounded-xl flex items-center justify-center font-black">{selectedUser.displayName.charAt(0)}</div>
-                         <div><p className="font-black text-sm">{selectedUser.displayName}</p><p className="text-[10px] text-muted-foreground">{selectedUser.employeeId}</p></div>
-                      </div>
-                      <Button variant="ghost" className="text-xs text-muted-foreground" onClick={() => setSelectedUser(null)}>변경</Button>
-                   </div>
-                   <div className="space-y-2">
-                      {PERMISSIONS.map(p => (
-                        <div key={p.id} className="flex items-center justify-between p-4 bg-white/5 rounded-xl">
-                           <div className="flex items-center gap-3"><p.icon className="w-4 h-4 text-primary" /><span className="text-xs font-bold">{p.label}</span></div>
-                           <div className={cn("w-10 h-5 rounded-full p-1", selectedUser.permissions?.includes(p.id) ? "bg-primary" : "bg-white/10")} onClick={() => handleTogglePermission(selectedUser.uid, p.id)}>
-                              <div className={cn("w-3 h-3 bg-white rounded-full transition-transform", selectedUser.permissions?.includes(p.id) ? "translate-x-5" : "translate-x-0")} />
-                           </div>
-                        </div>
-                      ))}
-                   </div>
-                </div>
-              ) : (
-                filteredUsers.slice(0, 10).map(u => (
-                  <div key={u.uid} className="bg-white/5 p-4 rounded-2xl flex items-center justify-between cursor-pointer hover:bg-white/10" onClick={() => setSelectedUser(u)}>
+              {(() => {
+                const activeUser = selectedUser ? users.find(u => u.uid === selectedUser.uid) || selectedUser : null;
+                
+                if (activeUser) {
+                  return (
+                    <div className="space-y-4">
+                       <div className="bg-white/5 p-4 rounded-2xl flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                             <div className="w-10 h-10 bg-primary/20 text-primary rounded-xl flex items-center justify-center font-black">
+                               {activeUser.displayName.charAt(0)}
+                             </div>
+                             <div>
+                               <p className="font-black text-sm">{activeUser.displayName}</p>
+                               <p className="text-[10px] text-muted-foreground">{activeUser.employeeId}</p>
+                             </div>
+                          </div>
+                          <Button variant="ghost" className="text-xs text-muted-foreground" onClick={() => setSelectedUser(null)}>변경</Button>
+                       </div>
+                       <div className="space-y-2">
+                          {PERMISSIONS.map(p => {
+                            const isGranted = activeUser.permissions?.includes(p.id);
+                            return (
+                              <div key={p.id} className="flex items-center justify-between p-4 bg-white/5 rounded-xl">
+                                 <div className="flex items-center gap-3">
+                                   <p.icon className="w-4 h-4 text-primary" />
+                                   <span className="text-xs font-bold">{p.label}</span>
+                                 </div>
+                                 <div 
+                                   className={cn(
+                                     "w-10 h-5 rounded-full p-1 cursor-pointer transition-all duration-200", 
+                                     isGranted ? "bg-primary" : "bg-white/10"
+                                   )} 
+                                   onClick={() => handleTogglePermission(activeUser.uid, p.id)}
+                                 >
+                                    <div className={cn(
+                                      "w-3 h-3 bg-white rounded-full transition-transform duration-200", 
+                                      isGranted ? "translate-x-5" : "translate-x-0"
+                                    )} />
+                                 </div>
+                              </div>
+                            );
+                          })}
+                       </div>
+                    </div>
+                  );
+                }
+
+                return filteredUsers.slice(0, 10).map(u => (
+                  <div 
+                    key={u.uid} 
+                    className="bg-white/5 p-4 rounded-2xl flex items-center justify-between cursor-pointer hover:bg-white/10 active:scale-95 transition-all" 
+                    onClick={() => setSelectedUser(u)}
+                  >
                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center font-black text-sm text-muted-foreground">{u.displayName.charAt(0)}</div>
-                        <div><p className="font-black text-sm">{u.displayName}</p><p className="text-[10px] text-muted-foreground">{u.employeeId}</p></div>
+                        <div className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center font-black text-sm text-muted-foreground">
+                          {u.displayName.charAt(0)}
+                        </div>
+                        <div>
+                          <p className="font-black text-sm">{u.displayName}</p>
+                          <p className="text-[10px] text-muted-foreground">{u.employeeId}</p>
+                        </div>
                      </div>
                      <ChevronRight className="w-4 h-4 text-white/20" />
                   </div>
-                ))
-              )}
+                ));
+              })()}
            </div>
         </DialogContent>
       </Dialog>

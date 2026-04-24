@@ -34,13 +34,28 @@ service cloud.firestore {
 
     function isHRManager() {
       return isAuthenticated() && (
-        (request.auth.token.email == "tjrwnfjqm1@gmail.com" && request.auth.token.email_verified == true) ||
+        request.auth.token.email == "tjrwnfjqm1@gmail.com" ||
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['CEO', 'DIRECTOR', 'GENERAL_AFFAIRS', 'GENERAL_MANAGER', 'CLERK', 'SAFETY_MANAGER'] ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['CEO', 'DIRECTOR', 'GENERAL_AFFAIRS', 'GENERAL_MANAGER', 'CLERK', 'SAFETY_MANAGER', 'TEAM_LEADER'] ||
           ('permissions' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data && 
            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions != null &&
-           'employee_mgmt' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions)
+           (
+             'employee_mgmt' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions ||
+             'attendance_mgmt' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions ||
+             'notice_mgmt' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions ||
+             'accident_mgmt' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions ||
+             'training_mgmt' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions
+           ))
         ))
+      );
+    }
+
+    function canManageRedemption() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['CEO', 'DIRECTOR', 'GENERAL_AFFAIRS', 'GENERAL_MANAGER'] ||
+        ('permissions' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions != null &&
+         'redemption_mgmt' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions)
       );
     }
 
@@ -142,6 +157,14 @@ service cloud.firestore {
              data.newScore is number &&
              data.type in ['PENALTY', 'REWARD'] &&
              data.createdAt is string;
+    }
+
+    function isValidTask(data) {
+      return data.keys().hasAll(['title', 'description', 'status', 'assignedToUid', 'assignedToName', 'priority', 'createdAt']) &&
+             data.title is string &&
+             data.assignedToUid is string &&
+             data.status in ['TODO', 'IN_PROGRESS', 'DONE'] &&
+             data.priority in ['LOW', 'MEDIUM', 'HIGH'];
     }
 
     // ===============================================================
@@ -248,10 +271,17 @@ service cloud.firestore {
     }
 
     match /redemptionRequests/{requestId} {
-      allow read: if isAuthenticated() && (isOwner(resource.data.uid) || isHRManager());
+      allow read: if isAuthenticated() && (isOwner(resource.data.uid) || canManageRedemption());
       allow create: if isAuthenticated() && isOwner(request.resource.data.uid) && isValidRedemptionRequest(request.resource.data);
-      allow update: if isAuthenticated() && isHRManager();
-      allow delete: if isAuthenticated() && isHRManager();
+      allow update: if isAuthenticated() && canManageRedemption();
+      allow delete: if isAuthenticated() && canManageRedemption();
+    }
+
+    match /tasks/{taskId} {
+      allow read: if isAuthenticated() && (isOwner(resource.data.assignedToUid) || isHRManager());
+      allow create: if isHRManager();
+      allow update: if isAuthenticated() && (isOwner(resource.data.assignedToUid) || isHRManager());
+      allow delete: if isHRManager();
     }
   }
 }

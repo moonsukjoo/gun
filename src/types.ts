@@ -191,3 +191,15 @@ export interface RedemptionRequest {
   processedBy?: string;
   processedByName?: string;
 }
+
+export interface Task {
+  id: string;
+  title: string;
+  description: string;
+  status: 'TODO' | 'IN_PROGRESS' | 'DONE';
+  assignedToUid: string;
+  assignedToName: string;
+  priority: 'LOW' | 'MEDIUM' | 'HIGH';
+  dueDate?: string;
+  createdAt: string;
+}

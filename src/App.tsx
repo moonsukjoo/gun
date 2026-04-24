@@ -23,6 +23,7 @@ import { TrainingList } from './pages/TrainingList';
 import { SafetyRanking } from './pages/SafetyRanking';
 import { Redemption } from './pages/Redemption';
 import { RedemptionManagement } from './pages/RedemptionManagement';
+import { AttendanceManagement } from './pages/AttendanceManagement';
 import { Admin } from './pages/Admin';
 import { Toaster } from '@/components/ui/sonner';
 
@@ -92,6 +93,7 @@ export default function App() {
           <Route path="/mypage" element={<ProtectedRoute><MyPage /></ProtectedRoute>} />
           <Route path="/redemption" element={<ProtectedRoute><Redemption /></ProtectedRoute>} />
           <Route path="/redemption-mgmt" element={<ProtectedRoute roles={['CEO', 'DIRECTOR', 'GENERAL_MANAGER']} permission="redemption_mgmt"><RedemptionManagement /></ProtectedRoute>} />
+          <Route path="/attendance-mgmt" element={<ProtectedRoute roles={['CEO', 'DIRECTOR', 'GENERAL_MANAGER']} permission="attendance_mgmt"><AttendanceManagement /></ProtectedRoute>} />
           <Route path="/ship-assembly" element={<ProtectedRoute><ShipAssembly /></ProtectedRoute>} />
           <Route path="/qualification" element={<ProtectedRoute><Qualification /></ProtectedRoute>} />
           <Route path="/training" element={<ProtectedRoute><TrainingList /></ProtectedRoute>} />
