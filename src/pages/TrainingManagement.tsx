@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '@/src/firebase';
 import { collection, onSnapshot, addDoc, updateDoc, doc, deleteDoc, query, orderBy } from 'firebase/firestore';
-import { Training, JobRole, QuizQuestion } from '@/src/types';
+import { Training, JobRole, QuizQuestion, UserProfile, TrainingResult } from '@/src/types';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,6 +12,7 @@ import {
   DialogHeader, 
   DialogTitle, 
   DialogFooter,
+  DialogDescription,
 } from '@/components/ui/dialog';
 import { 
   Select, 
@@ -22,7 +23,7 @@ import {
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { Plus, Trash2, BookOpen, Layers, HelpCircle, CheckCircle2, AlertCircle, FileUp, Clock, Eye, Send, Circle, Zap } from 'lucide-react';
+import { Plus, Trash2, BookOpen, Layers, HelpCircle, CheckCircle2, AlertCircle, FileUp, Clock, Eye, Send, Circle, Zap, Trophy } from 'lucide-react';
 import { useAuth } from '@/src/components/AuthProvider';
 import { cn } from '@/lib/utils';
 import * as XLSX from 'xlsx';
@@ -32,6 +33,8 @@ export const TrainingManagement: React.FC = () => {
   const { profile } = useAuth();
   const [trainings, setTrainings] = useState<Training[]>([]);
   const [jobRoles, setJobRoles] = useState<JobRole[]>([]);
+  const [users, setUsers] = useState<UserProfile[]>([]);
+  const [allResults, setAllResults] = useState<TrainingResult[]>([]);
   const DEFAULT_JOB_ROLES = ['취부', '용접', '사상', '도장', '반장', '조장', '기타'];
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -40,6 +43,8 @@ export const TrainingManagement: React.FC = () => {
   const [aiPrompt, setAiPrompt] = useState('');
   const [selectedTrainingId, setSelectedTrainingId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'PUBLISHED' | 'DRAFT'>('PUBLISHED');
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [trainingToDelete, setTrainingToDelete] = useState<string | null>(null);
 
   const [newTraining, setNewTraining] = useState({
     title: '',
@@ -56,6 +61,8 @@ export const TrainingManagement: React.FC = () => {
   const [examSettings, setExamSettings] = useState({
     questionsPerExam: 5,
     timeLimit: 15,
+    passingScore: 60,
+    pointsPerQuestion: 20,
     questions: [] as QuizQuestion[],
   });
 
@@ -71,9 +78,17 @@ export const TrainingManagement: React.FC = () => {
     const unsubscribeJR = onSnapshot(query(collection(db, 'jobRoles'), orderBy('name')), (snap) => {
       setJobRoles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as JobRole)));
     });
+    const unsubscribeUsers = onSnapshot(collection(db, 'users'), (snap) => {
+      setUsers(snap.docs.map(doc => ({ ...doc.data() } as UserProfile)));
+    });
+    const unsubscribeResults = onSnapshot(collection(db, 'trainingResults'), (snap) => {
+      setAllResults(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as TrainingResult)));
+    });
     return () => {
       unsubscribeT();
       unsubscribeJR();
+      unsubscribeUsers();
+      unsubscribeResults();
     };
   }, []);
 
@@ -131,10 +146,17 @@ export const TrainingManagement: React.FC = () => {
 
   const handleOpenExamSetup = (training: Training) => {
     setSelectedTrainingId(training.id);
+    const cleanedQuestions = (training.questions || []).map(q => ({
+      ...q,
+      question: String(q.question || '').replace(/^[Q]?\d+[\.\)\s]+/, ''),
+      options: (q.options || []).map(opt => String(opt || '').replace(/^\d+[\.\)\s]+/, ''))
+    }));
     setExamSettings({
       questionsPerExam: training.questionsPerExam || 5,
       timeLimit: training.timeLimit || 15,
-      questions: training.questions || [],
+      passingScore: training.passingScore || 60,
+      pointsPerQuestion: training.pointsPerQuestion || 20,
+      questions: cleanedQuestions,
     });
     setIsExamOpen(true);
   };
@@ -151,6 +173,8 @@ export const TrainingManagement: React.FC = () => {
         questions: examSettings.questions,
         questionsPerExam: examSettings.questionsPerExam,
         timeLimit: examSettings.timeLimit,
+        passingScore: examSettings.passingScore,
+        pointsPerQuestion: examSettings.pointsPerQuestion,
       });
       setIsExamOpen(false);
       toast.success('시험 설정이 저장되었습니다.');
@@ -174,6 +198,7 @@ export const TrainingManagement: React.FC = () => {
 출력은 반드시 다음과 같은 JSON 배열 형식이어야 합니다: 
 [{"question": "문제 내용", "options": ["보기1", "보기2", "보기3", "보기4"], "correctAnswer": 0}] 
 여기서 correctAnswer는 0부터 시작하는 인덱스입니다.
+중요: 질문이나 보기에 "1.", "2.", "Q1" 등과 같은 머리글 숫자를 포함하지 마세요. 인덱스는 별도로 표시됩니다.
 
 교육 내용:
 ${aiPrompt}`,
@@ -223,27 +248,96 @@ ${aiPrompt}`,
         const wb = XLSX.read(bstr, { type: 'binary' });
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
-        const data = XLSX.utils.sheet_to_json(ws);
         
-        const importedQuestions: QuizQuestion[] = data.map((item: any) => ({
-          id: Math.random().toString(36).substring(2, 9),
-          question: item.Question || item['문제'] || '',
-          options: [
-            item.Option1 || item['보기1'] || '',
-            item.Option2 || item['보기2'] || '',
-            item.Option3 || item['보기3'] || '',
-            item.Option4 || item['보기4'] || '',
-          ].filter(Boolean),
-          correctAnswer: (parseInt(item.CorrectAnswer || item['정답']) || 1) - 1
-        }));
+        const data = XLSX.utils.sheet_to_json(ws);
+        let importedQuestions: QuizQuestion[] = [];
 
-        setExamSettings(prev => ({
-          ...prev,
-          questions: [...prev.questions, ...importedQuestions]
-        }));
-        toast.success(`${importedQuestions.length}개의 문제가 추가되었습니다.`);
+        // Method 1: Check for structured headers (Question, Option1, etc.)
+        const firstItem = data[0] as any;
+        const hasHeaders = firstItem && (firstItem.Question || firstItem['문제'] || firstItem['질문']);
+
+        if (hasHeaders) {
+          importedQuestions = data.map((item: any) => {
+            const qText = String(item.Question || item['문제'] || item['질문'] || '').trim();
+            if (!qText) return null;
+
+            const opts = [
+              String(item.Option1 || item['보기1'] || item['1번'] || ''),
+              String(item.Option2 || item['보기2'] || item['2번'] || ''),
+              String(item.Option3 || item['보기3'] || item['3번'] || ''),
+              String(item.Option4 || item['보기4'] || item['4번'] || ''),
+            ].filter(v => v.trim() !== '');
+
+            const ansStr = String(item.CorrectAnswer || item['정답'] || item['답'] || '1');
+            const ansMatch = ansStr.match(/\d+/);
+            const ansIdx = ansMatch ? parseInt(ansMatch[0]) - 1 : 0;
+
+            return {
+              id: Math.random().toString(36).substring(2, 9),
+              question: qText,
+              options: opts.length >= 4 ? opts.slice(0, 4) : [...opts, '', '', '', ''].slice(0, 4),
+              correctAnswer: isNaN(ansIdx) ? 0 : Math.max(0, ansIdx)
+            };
+          }).filter(Boolean) as QuizQuestion[];
+        }
+
+        // Method 2: Heuristic parsing for sequential rows (Q -> O1 -> O2 -> O3 -> O4 -> A)
+        // This is specifically for the user's format.
+        if (importedQuestions.length === 0) {
+          const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+          const flatLines = rawRows.flat().map(v => String(v || '').trim()).filter(Boolean);
+          
+          let i = 0;
+          while (i < flatLines.length) {
+            // Find the next occurrence of "정답" or "답:"
+            let answerIdx = -1;
+            for (let j = i; j < Math.min(i + 15, flatLines.length); j++) {
+              if (flatLines[j].includes('정답') || flatLines[j].startsWith('답:')) {
+                answerIdx = j;
+                break;
+              }
+            }
+
+            if (answerIdx !== -1 && answerIdx > i) {
+              const segment = flatLines.slice(i, answerIdx);
+              // The first line is the question, subsequent lines are options
+              const questionRaw = segment[0];
+              const optionsRaw = segment.slice(1);
+              
+              // Extract answer index
+              const ansMatch = flatLines[answerIdx].match(/\d+/);
+              const ansIdx = ansMatch ? parseInt(ansMatch[0]) - 1 : 0;
+
+              // Clean strings (remove leading numbers like "1. ")
+              const cleanQ = questionRaw.replace(/^[Q]?\d+[\.\)\s]+/, '').trim();
+              const cleanOpts = optionsRaw.map(opt => opt.replace(/^\d+[\.\)\s]+/, '').trim());
+
+              importedQuestions.push({
+                id: Math.random().toString(36).substring(2, 9),
+                question: cleanQ || questionRaw,
+                options: cleanOpts.length >= 4 ? cleanOpts.slice(0, 4) : [...cleanOpts, '', '', '', ''].slice(0, 4),
+                correctAnswer: isNaN(ansIdx) ? 0 : Math.max(0, ansIdx)
+              });
+              
+              i = answerIdx + 1;
+            } else {
+              i++;
+            }
+          }
+        }
+
+        if (importedQuestions.length > 0) {
+          setExamSettings(prev => ({
+            ...prev,
+            questions: [...prev.questions, ...importedQuestions]
+          }));
+          toast.success(`${importedQuestions.length}개의 문제가 추가되었습니다.`);
+        } else {
+          toast.error('엑셀에서 문제를 인식할 수 없습니다. 형식을 확인해주세요.');
+        }
       } catch (error) {
-        toast.error('엑셀 파일 형식이 올바르지 않습니다.');
+        console.error(error);
+        toast.error('엑셀 파일 처리 중 오류가 발생했습니다.');
       }
     };
     reader.readAsBinaryString(file);
@@ -272,12 +366,20 @@ ${aiPrompt}`,
     }
   };
 
-  const handleDeleteTraining = async (id: string) => {
-    if (!confirm('정말로 삭제하시겠습니까?')) return;
+  const handleDeleteTraining = (id: string) => {
+    setTrainingToDelete(id);
+    setIsDeleteConfirmOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!trainingToDelete) return;
     try {
-      await deleteDoc(doc(db, 'trainings', id));
-      toast.success('교육 자료가 삭제되었습니다.');
+      await deleteDoc(doc(db, 'trainings', trainingToDelete));
+      toast.success('교육 자료가 영구 삭제되었습니다.');
+      setIsDeleteConfirmOpen(false);
+      setTrainingToDelete(null);
     } catch (error) {
+      console.error('Delete error:', error);
       toast.error('삭제 중 오류가 발생했습니다.');
     }
   };
@@ -358,6 +460,8 @@ ${aiPrompt}`,
                    onDelete={() => handleDeleteTraining(t.id)} 
                    onUpdateExam={() => handleOpenExamSetup(t)}
                    onEdit={() => handleOpenEdit(t)}
+                   allResults={allResults}
+                   totalUsers={users.length}
                 />
               ))
             ) : (
@@ -541,7 +645,7 @@ ${aiPrompt}`,
             </div>
           </DialogHeader>
           <div className="p-6 sm:p-10 space-y-8 overflow-y-auto no-scrollbar">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-muted-foreground uppercase tracking-widest ml-1">출제 문항 수</label>
                 <Input type="number" min={1} value={examSettings.questionsPerExam} onChange={e => setExamSettings({...examSettings, questionsPerExam: parseInt(e.target.value) || 1})} className="h-12 font-black text-lg bg-white/5 border-white/5 rounded-xl px-4 text-white" />
@@ -549,6 +653,14 @@ ${aiPrompt}`,
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-muted-foreground uppercase tracking-widest ml-1">제한 시간 (분)</label>
                 <Input type="number" min={1} value={examSettings.timeLimit} onChange={e => setExamSettings({...examSettings, timeLimit: parseInt(e.target.value) || 1})} className="h-12 font-black text-lg bg-white/5 border-white/5 rounded-xl px-4 text-white" />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-muted-foreground uppercase tracking-widest ml-1">문항당 배점</label>
+                <Input type="number" min={1} value={examSettings.pointsPerQuestion} onChange={e => setExamSettings({...examSettings, pointsPerQuestion: parseInt(e.target.value) || 0})} className="h-12 font-black text-lg bg-white/5 border-white/5 rounded-xl px-4 text-white" />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-muted-foreground uppercase tracking-widest ml-1">합격 기준 (점)</label>
+                <Input type="number" min={1} value={examSettings.passingScore} onChange={e => setExamSettings({...examSettings, passingScore: parseInt(e.target.value) || 0})} className="h-12 font-black text-lg bg-white/5 border-white/5 rounded-xl px-4 text-white" />
               </div>
             </div>
             <div className="space-y-6 pt-6 border-t border-white/5">
@@ -621,11 +733,21 @@ ${aiPrompt}`,
                           >
                             {oIdx + 1}
                           </button>
-                          <Input value={opt} onChange={e => {
-                            const newQs = [...examSettings.questions];
-                            newQs[idx].options[oIdx] = e.target.value;
-                            setExamSettings({...examSettings, questions: newQs});
-                          }} placeholder={`보기 ${oIdx + 1}`} className="h-9 font-bold bg-black/20 border-white/5 rounded-lg text-[10px] text-white placeholder:text-white/20" />
+                          <div className="flex-1 relative">
+                             <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-white/30 pointer-events-none">
+                               {oIdx + 1}.
+                             </div>
+                             <Input 
+                               value={opt} 
+                               onChange={e => {
+                                 const newQs = [...examSettings.questions];
+                                 newQs[idx].options[oIdx] = e.target.value;
+                                 setExamSettings({...examSettings, questions: newQs});
+                               }} 
+                               placeholder={`내용 입력`} 
+                               className="h-9 font-bold bg-black/20 border-white/5 rounded-lg text-[10px] text-white placeholder:text-white/20 pl-8" 
+                             />
+                           </div>
                         </div>
                       ))}
                     </div>
@@ -641,13 +763,114 @@ ${aiPrompt}`,
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
+        <DialogContent className="bg-card border-none rounded-[2.5rem] shadow-2xl max-w-sm w-[90vw] p-8 text-center space-y-6 text-white">
+          <div className="w-20 h-20 bg-red-500/10 rounded-[2rem] flex items-center justify-center text-red-500 mx-auto">
+            <Trash2 className="w-10 h-10" />
+          </div>
+          <div className="space-y-2">
+            <DialogTitle className="text-2xl font-black tracking-tight text-white">영구 삭제하시겠습니까?</DialogTitle>
+            <DialogDescription className="text-sm font-bold text-muted-foreground leading-relaxed">
+              이 작업은 복구할 수 없습니다.<br />모든 교육 자료와 관련 데이터가 삭제됩니다.
+            </DialogDescription>
+          </div>
+          <div className="flex flex-col gap-2 pt-2">
+            <Button 
+              variant="destructive" 
+              className="h-14 rounded-2xl font-black text-base bg-red-500 hover:bg-red-600 text-white" 
+              onClick={confirmDelete}
+            >
+              네, 삭제합니다
+            </Button>
+            <Button 
+              variant="ghost" 
+              className="h-14 rounded-2xl font-black text-muted-foreground hover:text-white" 
+              onClick={() => setIsDeleteConfirmOpen(false)}
+            >
+              아니오, 유지할게요
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
 
-const RenderTrainingCard = ({ t, onToggle, onDelete, onUpdateExam, onEdit }: { t: Training, onToggle: () => void, onDelete: () => void, onUpdateExam: () => void, onEdit: () => void }) => (
-  <Card className="border-none shadow-xl bg-card rounded-[2.5rem] overflow-hidden hover:border-emerald-500/20 shadow-emerald-500/5 transition-all w-full border border-white/5">
+const RenderTrainingCard = ({ t, onToggle, onDelete, onUpdateExam, onEdit, allResults, totalUsers }: { 
+  t: Training, 
+  onToggle: () => void, 
+  onDelete: () => void, 
+  onUpdateExam: () => void, 
+  onEdit: () => void,
+  allResults: TrainingResult[],
+  totalUsers: number
+}) => {
+  const trainingResults = allResults.filter(r => r.trainingId === t.id);
+  
+  // Group results by UID to handle multiple attempts (pass if at least one pass)
+  const resultsByUser = trainingResults.reduce((acc, r) => {
+    if (!acc[r.uid] || (!acc[r.uid].isPassed && r.isPassed)) {
+      acc[r.uid] = r;
+    }
+    return acc;
+  }, {} as Record<string, TrainingResult>);
+
+  const completedCount = Object.values(resultsByUser).filter(r => r.isPassed).length;
+  const notCompletedCount = Math.max(0, totalUsers - completedCount);
+  const examTakenCount = Object.keys(resultsByUser).length;
+  
+  // For Pass/Fail split of all attempts (or per user, but let's go with user-centric)
+  const passCount = completedCount;
+  const failCount = Math.max(0, examTakenCount - passCount);
+
+  return (
+  <Card className="border-none shadow-xl bg-card rounded-[2.5rem] overflow-hidden hover:border-emerald-500/20 shadow-emerald-500/5 transition-all w-full border border-white/5 relative">
     <CardContent className="p-6 sm:p-8 space-y-6">
+      {/* Dashboard Stats */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-1.5 h-6 bg-emerald-500 rounded-full" />
+            <h4 className="text-xs font-black text-white uppercase tracking-wider">교육 현황 대시보드</h4>
+          </div>
+          <Button 
+            variant="ghost" 
+            size="icon"
+            onClick={onDelete} 
+            className="w-8 h-8 rounded-xl text-white/20 hover:text-red-400 hover:bg-red-400/10 transition-colors"
+          >
+            <Trash2 className="w-4 h-4" />
+          </Button>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 bg-black/20 p-4 rounded-3xl border border-white/5">
+          <div className="text-center p-2 rounded-2xl bg-white/5 border border-white/5">
+            <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mb-1">총 인원</p>
+            <p className="text-sm font-black text-white">{totalUsers}명</p>
+          </div>
+          <div className="text-center p-2 rounded-2xl bg-emerald-500/10 border border-emerald-500/20">
+            <p className="text-[9px] font-black text-emerald-500/60 uppercase tracking-widest mb-1">교육 이수</p>
+            <p className="text-sm font-black text-emerald-400">{completedCount}명</p>
+          </div>
+          <div className="text-center p-2 rounded-2xl bg-red-500/10 border border-red-500/20">
+            <p className="text-[9px] font-black text-red-500/60 uppercase tracking-widest mb-1">미이수</p>
+            <p className="text-sm font-black text-red-400">{notCompletedCount}명</p>
+          </div>
+          <div className="text-center p-2 rounded-2xl bg-white/5 border border-white/5">
+            <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mb-1">평가 응시</p>
+            <p className="text-sm font-black text-white">{examTakenCount}명</p>
+          </div>
+          <div className="text-center p-2 rounded-2xl bg-blue-500/10 border border-blue-500/20">
+            <p className="text-[9px] font-black text-blue-500/60 uppercase tracking-widest mb-1">합격</p>
+            <p className="text-sm font-black text-blue-400">{passCount}명</p>
+          </div>
+          <div className="text-center p-2 rounded-2xl bg-orange-500/10 border border-orange-500/20">
+            <p className="text-[9px] font-black text-orange-500/60 uppercase tracking-widest mb-1">탈락</p>
+            <p className="text-sm font-black text-orange-400">{failCount}명</p>
+          </div>
+        </div>
+      </div>
+
       {/* Header Info */}
       <div className="flex flex-col items-center text-center space-y-4">
         {/* Top Badges */}
@@ -670,18 +893,22 @@ const RenderTrainingCard = ({ t, onToggle, onDelete, onUpdateExam, onEdit }: { t
       </div>
 
       {/* Stats Icons */}
-      <div className="flex items-center justify-center gap-6 py-4 bg-white/5 rounded-3xl border border-dashed border-white/10">
+      <div className="flex items-center justify-center gap-4 py-4 bg-white/5 rounded-3xl border border-dashed border-white/10">
         <div className="flex flex-col items-center gap-1">
-          <Layers className="w-5 h-5 text-white/20" />
+          <Layers className="w-4 h-4 text-white/20" />
           <span className="text-[10px] font-black text-white/40 uppercase tracking-tighter">{t.questions?.length || 0}문항</span>
         </div>
-        <div className="flex flex-col items-center gap-1 border-x border-white/10 px-6">
-          <Clock className="w-5 h-5 text-white/20" />
+        <div className="flex flex-col items-center gap-1 border-x border-white/10 px-4">
+          <Clock className="w-4 h-4 text-white/20" />
           <span className="text-[10px] font-black text-white/40 uppercase tracking-tighter">{t.timeLimit || 15}분</span>
         </div>
-        <div className="flex flex-col items-center gap-1">
-          <HelpCircle className="w-5 h-5 text-white/20" />
+        <div className="flex flex-col items-center gap-1 border-r border-white/10 pr-4">
+          <HelpCircle className="w-4 h-4 text-white/20" />
           <span className="text-[10px] font-black text-white/40 uppercase tracking-tighter">{t.questionsPerExam || 0}문제</span>
+        </div>
+        <div className="flex flex-col items-center gap-1">
+          <Trophy className="w-4 h-4 text-white/20" />
+          <span className="text-[10px] font-black text-white/40 uppercase tracking-tighter">{t.passingScore || 60}점 합격</span>
         </div>
       </div>
 
@@ -723,7 +950,8 @@ const RenderTrainingCard = ({ t, onToggle, onDelete, onUpdateExam, onEdit }: { t
       </div>
     </CardContent>
   </Card>
-);
+  );
+};
 
 const EmptyState = ({ text }: { text: string }) => (
   <div className="py-24 text-center bg-card rounded-[3rem] border-2 border-dashed border-white/5 flex flex-col items-center justify-center gap-6 px-10 shadow-inner">

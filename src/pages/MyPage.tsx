@@ -50,6 +50,7 @@ export const MyPage: React.FC = () => {
   const [reAuthPin, setReAuthPin] = useState('');
   const [isReAuthPending, setIsReAuthPending] = useState(false);
   const [examHistory, setExamHistory] = useState<TrainingResult[]>([]);
+  const [allResults, setAllResults] = useState<TrainingResult[]>([]);
   const [isExamHistoryOpen, setIsExamHistoryOpen] = useState(false);
 
   React.useEffect(() => {
@@ -64,6 +65,26 @@ export const MyPage: React.FC = () => {
     });
     return () => unsubscribe();
   }, [profile]);
+
+  React.useEffect(() => {
+    const q = query(
+      collection(db, 'trainingResults'), 
+      orderBy('score', 'desc'),
+      orderBy('completedAt', 'asc')
+    );
+    const unsubscribe = onSnapshot(q, (snap) => {
+      setAllResults(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as TrainingResult)));
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const getRanking = (resId: string, trainingId: string) => {
+    const trainingResults = allResults.filter(r => r.trainingId === trainingId);
+    const total = trainingResults.length;
+    if (total === 0) return '- / -등';
+    const rank = trainingResults.findIndex(r => r.id === resId) + 1;
+    return `${rank} / ${total}등`;
+  };
 
   const handleUpdatePin = async (finalPin: string) => {
     if (!auth.currentUser || !profile) return;
@@ -303,7 +324,11 @@ export const MyPage: React.FC = () => {
                 <div key={res.id} className="bg-white/5 p-4 rounded-2xl flex items-center justify-between">
                    <div>
                       <h4 className="text-sm font-black text-white">{res.trainingTitle}</h4>
-                      <p className="text-[10px] text-muted-foreground font-bold">{format(new Date(res.completedAt), 'yyyy.MM.dd')}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-[10px] text-muted-foreground font-bold">{format(new Date(res.completedAt), 'yyyy.MM.dd')}</p>
+                        <span className="text-[10px] text-primary font-black">{res.score}점</span>
+                        <span className="text-[10px] text-white/40 font-bold">{getRanking(res.id, res.trainingId)}</span>
+                      </div>
                    </div>
                    <Badge className={cn("rounded-lg font-black text-[10px]", res.isPassed ? "bg-emerald-500/20 text-emerald-500" : "bg-red-500/20 text-red-500")}>
                       {res.isPassed ? '합격' : '과락'}

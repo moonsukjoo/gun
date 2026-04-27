@@ -70,6 +70,8 @@ export interface Training {
   questions: QuizQuestion[];
   questionsPerExam?: number; // Number of random questions to show in exam
   timeLimit?: number; // Time limit in minutes
+  passingScore?: number; // Minimum score to pass
+  pointsPerQuestion?: number; // Points for each correct answer
   status: 'DRAFT' | 'PUBLISHED';
   createdAt: string;
 }
@@ -125,6 +127,8 @@ export interface AccidentCase {
 export interface LeaveRequest {
   id: string;
   uid: string;
+  displayName?: string;
+  employeeId?: string;
   type: 'ANNUAL' | 'SICK' | 'SPECIAL' | 'AM_HALF' | 'PM_HALF' | 'OTHER';
   startDate: string;
   endDate: string;

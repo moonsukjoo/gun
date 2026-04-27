@@ -60,6 +60,7 @@ export const Dashboard: React.FC = () => {
   const [newNotice, setNewNotice] = useState({ title: '', content: '', isImportant: false, shouldNotify: true });
   const [userTrend, setUserTrend] = useState<number>(0);
   const [isSOSLoading, setIsSOSLoading] = useState(false);
+  const [bannerText, setBannerText] = useState('안전한 하루가 되세요');
 
   const [myTasks, setMyTasks] = useState<Task[]>([]);
   const [adminStats, setAdminStats] = useState({
@@ -195,6 +196,12 @@ export const Dashboard: React.FC = () => {
       };
     }
 
+    const unsubscribeBanner = onSnapshot(doc(db, 'settings', 'banner'), (snapshot) => {
+      if (snapshot.exists()) {
+        setBannerText(snapshot.data().text || '안전한 하루가 되세요');
+      }
+    });
+
     return () => {
       unsubscribeAttendance();
       unsubscribeNotices();
@@ -202,6 +209,7 @@ export const Dashboard: React.FC = () => {
       unsubscribeTrend();
       unsubscribeTasks();
       unsubscribeAdminStats();
+      unsubscribeBanner();
     };
   }, [profile, isManager]);
 
@@ -421,8 +429,8 @@ export const Dashboard: React.FC = () => {
         <p className="text-muted-foreground font-black text-lg">
           {profile?.displayName}님,
         </p>
-        <h1 className="text-3xl font-black text-white tracking-tight leading-tight whitespace-nowrap">
-          안전한 하루가 되세요
+        <h1 className="text-3xl font-black text-white tracking-tight leading-tight whitespace-pre-wrap">
+          {bannerText}
         </h1>
       </div>
 

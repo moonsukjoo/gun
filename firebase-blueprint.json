@@ -260,6 +260,17 @@
         "processedByName": { "type": "string" }
       },
       "required": ["uid", "userName", "pointsRequested", "amount", "status", "createdAt"]
+    },
+    "Banner": {
+      "title": "Banner Setting",
+      "description": "Customizable banner text on the dashboard",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "updatedBy": { "type": "string" }
+      },
+      "required": ["text", "updatedAt"]
     }
   },
   "firestore": {
@@ -322,6 +333,10 @@
     "/redemptionRequests/{requestId}": {
       "schema": "RedemptionRequest",
       "description": "Point redemption requests"
+    },
+    "/settings/banner": {
+      "schema": "Banner",
+      "description": "Global banner text configuration"
     }
   }
 }

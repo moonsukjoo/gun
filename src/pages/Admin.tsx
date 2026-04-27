@@ -12,6 +12,7 @@ import {
   DialogDescription,
   DialogFooter
 } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
 import { SHIP_PARTS } from '@/src/services/shipService';
 import { 
   Users, 
@@ -61,6 +62,7 @@ export const Admin: React.FC = () => {
   const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
   const [isSnailSettingsOpen, setIsSnailSettingsOpen] = useState(false);
   const [isShipSettingsOpen, setIsShipSettingsOpen] = useState(false);
+  const [isBannerSettingsOpen, setIsBannerSettingsOpen] = useState(false);
   const [isPermissionSettingsOpen, setIsPermissionSettingsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -69,6 +71,7 @@ export const Admin: React.FC = () => {
     probability: 0.3,
     disabledParts: [] as string[]
   });
+  const [bannerText, setBannerText] = useState('안전한 하루가 되세요');
 
   useEffect(() => {
     const q = query(collection(db, 'users'));
@@ -95,6 +98,12 @@ export const Admin: React.FC = () => {
           probability: data.probability ?? 0.3,
           disabledParts: data.disabledParts ?? []
         });
+      }
+    });
+
+    onSnapshot(doc(db, 'settings', 'banner'), (snapshot) => {
+      if (snapshot.exists()) {
+        setBannerText(snapshot.data().text || '안전한 하루가 되세요');
       }
     });
   }, []);
@@ -128,6 +137,7 @@ export const Admin: React.FC = () => {
     { to: '/leave-mgmt', label: '연차/휴가 관리', icon: CalendarDays, permission: 'leave_mgmt' },
     { to: '/notifications', label: '공지사항 관리', icon: Megaphone, permission: 'notice_mgmt' },
     { to: '/accidents', label: '사고즉보 관리', icon: ShieldAlert, permission: 'accident_mgmt' },
+    { onClick: () => setIsBannerSettingsOpen(true), label: '메인 배너 관리', icon: Megaphone, permission: 'admin' },
     { onClick: () => setIsSnailSettingsOpen(true), label: '달팽이 경주 설정', icon: Zap, permission: 'admin' },
     { onClick: () => setIsShipSettingsOpen(true), label: '함선 부품 설정', icon: Ship, permission: 'admin' },
     { onClick: () => setIsPermissionSettingsOpen(true), label: '사용자 권한 명단', icon: ShieldCheck, permission: 'admin' },
@@ -175,7 +185,7 @@ export const Admin: React.FC = () => {
                       <span>{p.toFixed(1)}x</span>
                    </div>
                    <input type="range" min="0.5" max="3" step="0.1" value={p} onChange={e => {
-                     const updated = [...snailProbs]; updated[i] = parseFloat(e.target.value); setSnailProbs(updated);
+                      const updated = [...snailProbs]; updated[i] = parseFloat(e.target.value); setSnailProbs(updated);
                    }} className="w-full h-2 bg-white/10 rounded-full appearance-none accent-primary" />
                 </div>
               ))}
@@ -184,6 +194,32 @@ export const Admin: React.FC = () => {
              await setDoc(doc(db, 'settings', 'entertainment'), { snailProbabilities: snailProbs }, { merge: true });
              toast.success('저장 완료'); setIsSnailSettingsOpen(false);
            }}>설정 저장</Button>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isBannerSettingsOpen} onOpenChange={setIsBannerSettingsOpen}>
+        <DialogContent className="bg-card border-none rounded-3xl text-white max-w-sm">
+           <DialogHeader><DialogTitle className="font-black">메인 배너 관리</DialogTitle></DialogHeader>
+           <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">배너 문구</Label>
+                <Input 
+                  value={bannerText} 
+                  onChange={(e) => setBannerText(e.target.value)}
+                  className="bg-white/5 border-none h-12 rounded-xl text-white font-bold"
+                  placeholder="예: 안전한 하루가 되세요"
+                />
+              </div>
+           </div>
+           <Button className="w-full h-14 bg-primary text-white font-black rounded-2xl" onClick={async () => {
+             await setDoc(doc(db, 'settings', 'banner'), { 
+               text: bannerText,
+               updatedAt: new Date().toISOString(),
+               updatedBy: profile?.uid
+             }, { merge: true });
+             toast.success('배너 문구가 저장되었습니다.'); 
+             setIsBannerSettingsOpen(false);
+           }}>저장하기</Button>
         </DialogContent>
       </Dialog>
 

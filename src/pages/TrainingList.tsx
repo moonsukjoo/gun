@@ -76,6 +76,13 @@ export const TrainingList: React.FC = () => {
     if (!target || !target.questions || target.questions.length === 0) {
       toast.error('문제가 없습니다.'); return;
     }
+
+    // Check attempts limit (max 2 attempts)
+    const userAttempts = results.filter(r => r.trainingId === target.id).length;
+    if (userAttempts >= 2) {
+      toast.error('최대 응시 횟수(2회)를 초과하였습니다.');
+      return;
+    }
     
     // Select questions randomly
     const selected = [...target.questions]
@@ -109,17 +116,25 @@ export const TrainingList: React.FC = () => {
   const handleSubmitExam = async (isAuto = false) => {
     if (!selectedTraining || !profile || activeQuestions.length === 0) return;
     if (!isAuto && Object.keys(currentAnswers).length < activeQuestions.length) {
-      toast.error('모든 문제를 풀어주세요.'); return;
+      toast.warning('모든 문제를 풀어주세요.', {
+        description: '남은 문제들을 모두 선택한 후 다시 제출 버튼을 눌러주세요.',
+      }); 
+      return;
     }
-    let score = 0;
-    activeQuestions.forEach(q => { if (currentAnswers[q.id] === q.correctAnswer) score++; });
-    const isPassed = score / activeQuestions.length >= 0.7;
+    let correctCount = 0;
+    activeQuestions.forEach(q => { if (currentAnswers[q.id] === q.correctAnswer) correctCount++; });
+    
+    const pointsPerQuestion = selectedTraining.pointsPerQuestion || 20;
+    const passingScore = selectedTraining.passingScore || 60;
+    const totalScore = correctCount * pointsPerQuestion;
+    const isPassed = totalScore >= passingScore;
+
     const resultData: Omit<TrainingResult, 'id'> = {
       trainingId: selectedTraining.id,
       trainingTitle: selectedTraining.title,
       uid: profile.uid,
       userName: profile.displayName,
-      score,
+      score: totalScore,
       totalQuestions: activeQuestions.length,
       isPassed,
       completedAt: new Date().toISOString()
@@ -204,10 +219,24 @@ export const TrainingList: React.FC = () => {
                    </Button>
                  )}
               </div>
-              <div className="p-6 border-t border-white/5">
-                 <Button className="w-full h-16 bg-primary text-white font-black rounded-2xl" onClick={() => handleStartExam()}>
-                   시험 응시하기
-                 </Button>
+              <div className="p-6 border-t border-white/5 space-y-2">
+                 {(() => {
+                    const attempts = results.filter(r => r.trainingId === selectedTraining.id).length;
+                    return (
+                      <>
+                        <Button 
+                          className="w-full h-16 bg-primary text-white font-black rounded-2xl disabled:opacity-50" 
+                          onClick={() => handleStartExam()}
+                          disabled={attempts >= 2}
+                        >
+                          {attempts >= 2 ? '응시 기회 소진' : '시험 응시하기'}
+                        </Button>
+                        <p className="text-[10px] text-center text-muted-foreground font-bold">
+                          남은 응시 기회: <span className={cn(attempts >= 2 ? "text-red-400" : "text-emerald-400")}>{Math.max(0, 2 - attempts)}회</span> (총 2회)
+                        </p>
+                      </>
+                    );
+                 })()}
               </div>
             </>
           )}
@@ -238,7 +267,7 @@ export const TrainingList: React.FC = () => {
                             currentAnswers[q.id] === oIdx ? "bg-primary border-primary text-white" : "bg-white/5 border-white/5 text-muted-foreground"
                           )}
                         >
-                          {opt}
+                          {oIdx + 1}. {String(opt).replace(/^\d+[\.\)\s]+/, '')}
                         </button>
                       ))}
                    </div>
@@ -262,7 +291,7 @@ export const TrainingList: React.FC = () => {
                </div>
                <div className="space-y-1">
                   <h3 className="text-2xl font-black">{lastResult.isPassed ? '시험 합격!' : '시험 불합격'}</h3>
-                  <p className="text-muted-foreground font-bold">{lastResult.score} / {lastResult.totalQuestions} 문제 정답</p>
+                  <p className="text-muted-foreground font-bold">{lastResult.score}점 ({lastResult.totalQuestions}문항 응시)</p>
                </div>
                <Button className="w-full h-14 bg-primary text-white font-black rounded-2xl" onClick={() => setIsResultOpen(false)}>
                   확인
