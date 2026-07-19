@@ -112,6 +112,47 @@ export interface TrainingResult {
   completedAt: string;
 }
 
+export interface StatutorySession {
+  id: string; // e.g. "2025_05_1_onsite"
+  title: string;
+  year: number;
+  month: number;
+  round: number; // 1 or 2
+  category: '현장안전 교육' | '영상안전보건 교육' | '월간 위험성평가 교육' | '특별안전 교육' | '신규입사자 교육' | string;
+  content: string; // Course details or summary
+  targetDepartment: string; // e.g. "용접팀", "취부팀", "전체"
+  instructor: string;
+  location: string;
+  videoUrl?: string; // Optional training material link
+  durationMinutes?: number; // e.g. 60 or 120 minutes
+  trainingMethod?: 'ONSITE' | 'ONLINE' | string; // e.g. "현장직접" vs "온라인(영상)"
+  trainingDate?: string; // Specific training date e.g. "2026-05-27"
+  createdAt: string;
+  imageUrl?: string;
+  isReeducation?: boolean;
+  parentSessionId?: string;
+  allowedUids?: string[];
+}
+
+export interface StatutoryCompletion {
+  id: string; // e.g. "session_id + _ + uid"
+  sessionId: string;
+  uid: string;
+  userName: string;
+  userRole: string; // e.g. WORKER, TEAM_LEADER
+  departmentName: string; // e.g. "용접팀", "취부팀"
+  position: string; // e.g. "기공", "조장", "반장"
+  category: string;
+  year: number;
+  month: number;
+  round: number;
+  completedAt: string;
+  signatureUrl: string; // Canvas drawn signature base64 url
+  evalSignatureUrl?: string; // Signature drawn for training evaluation
+  evaluationGrade?: string; // Evaluation grade, e.g. 'A', 'B', 'C'
+  status: 'COMPLETED';
+}
+
 export interface AttendanceLog {
   id: string;
   uid: string;
@@ -158,7 +199,7 @@ export interface LeaveRequest {
   uid: string;
   displayName?: string;
   employeeId?: string;
-  type: 'ANNUAL' | 'SICK' | 'SPECIAL' | 'AM_HALF' | 'PM_HALF' | 'OTHER';
+  type: 'ANNUAL' | 'SICK' | 'SPECIAL' | 'AM_HALF' | 'PM_HALF' | 'OTHER' | 'OUTING' | 'OUTING_1H' | 'OUTING_2H';
   startDate: string;
   endDate: string;
   reason: string;
@@ -174,7 +215,9 @@ export interface WorkInstructionReport {
   date: string; // yyyy-MM-dd
   dayOfWeek: string;
   supervisorName: string; // 관리감독자
+  supervisorSignUrl?: string;
   safetyManagerName: string; // 안전보건관리책임자
+  safetyManagerSignUrl?: string;
   tbmContent: string;
   
   workerInstructions: {
@@ -277,6 +320,7 @@ export interface PraiseCoupon {
   reason: string;
   points: number;
   createdAt: string;
+  status?: 'PENDING' | 'COMPLETED';
 }
 
 export interface RedemptionRequest {
@@ -317,6 +361,7 @@ export interface TeamWorkLog {
   teamName: string;
   date: string; // yyyy-MM-dd
   entries: WorkLogEntry[];
+  supervisorSignUrl?: string;
   createdAt: string;
   createdByUid: string;
   createdByUserName: string;
@@ -411,6 +456,7 @@ export interface IndividualWorkLog {
   date: string; // yyyy-MM-dd
   clockOutTime: string; // HH:mm
   tasks: { content: string; hours: string }[];
+  workerSignUrl?: string;
   status: 'PENDING' | 'LEADER_APPROVED' | 'FINAL_APPROVED' | 'REJECTED';
   approvedByLeaderUid?: string;
   approvedByLeaderName?: string;
@@ -447,3 +493,21 @@ export interface SnackRequest {
   approvedByName?: string;
   approvedAt?: string;
 }
+
+export interface WorkRequest {
+  id: string;
+  senderUid: string;
+  senderName: string;
+  senderPosition?: string;
+  receiverUid: string;
+  receiverName: string;
+  receiverNameAndPosition?: string;
+  content: string;
+  isUrgent: boolean; // 긴급 vs 일반
+  category: 'SAFETY' | 'WORK'; // 안전 vs 업무
+  status: 'PENDING' | 'RESOLVED' | 'REJECTED'; // PENDING: 대기중, RESOLVED: 완료, REJECTED: 거절
+  createdAt: string;
+  resolvedAt?: string;
+  remarks?: string;
+}
+

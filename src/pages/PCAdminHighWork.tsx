@@ -68,9 +68,9 @@ const PCAdminHighWork: React.FC = () => {
           <div className="space-y-4">
             <div className="flex items-center gap-3">
                <div className="w-3 h-3 bg-rose-600 rounded-full animate-ping" />
-               <h2 className="text-3xl font-black text-slate-900 tracking-tight uppercase tracking-tighter">Real-time High-Altitude Monitoring</h2>
+               <h2 className="text-3xl font-black text-foreground tracking-tight uppercase tracking-tighter">Real-time High-Altitude Monitoring</h2>
             </div>
-            <p className="text-slate-500 font-medium italic">현재 모든 고공 작업 현장의 센서 데이터를 실시간으로 수집하고 있습니다.</p>
+            <p className="text-muted-foreground font-medium italic">현재 모든 고공 작업 현장의 센서 데이터를 실시간으로 수집하고 있습니다.</p>
           </div>
           <div className="flex items-center gap-6 bg-slate-900 px-8 py-5 rounded-[2.5rem] shadow-2xl">
              <div className="flex items-center gap-3 pr-6 border-r border-slate-800">

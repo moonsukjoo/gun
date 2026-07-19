@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { db, handleFirestoreError, OperationType } from '@/firebase';
-import { collection, onSnapshot, updateDoc, doc, addDoc, deleteDoc, query, orderBy, increment } from 'firebase/firestore';
+import { collection, onSnapshot, updateDoc, doc, addDoc, deleteDoc, query, orderBy, increment, writeBatch, getDocs } from 'firebase/firestore';
 import { UserProfile, Role, Department, PraiseCoupon, JobRole, UserStatus } from '@/types';
 import { useAuth } from '@/components/AuthProvider';
 import { 
@@ -81,10 +81,12 @@ const PERMISSIONS = [
   { id: 'leave_mgmt', label: '연차/휴가 관리' },
   { id: 'dept_mgmt', label: '부서/팀 관리' },
   { id: 'employee_mgmt', label: '인사/사원 관리' },
-  { id: 'training_mgmt', label: '교육/평가 관리' },
+  { id: 'training_mgmt', label: '일반 교육/평가 관리' },
+  { id: 'statutory_training_mgmt', label: '법정 정기교육 관리' },
   { id: 'praise_coupon', label: '칭찬쿠폰 발행' },
   { id: 'health_mgmt', label: '보건관리(이상무)' },
   { id: 'unified_report', label: '통합 보고서 관리' },
+  { id: 'meal_snack_mgmt', label: '도시락/간식 신청 관리' },
 ];
 
 import { GlowLoading } from '@/components/GlowLoading';
@@ -97,11 +99,13 @@ export const EmployeeManagement: React.FC = () => {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [jobRoles, setJobRoles] = useState<JobRole[]>([]);
   const [positions, setPositions] = useState<{id: string, name: string, createdAt: string}[]>([]);
+  const [workplaces, setWorkplaces] = useState<{id: string, name: string, createdAt: string}[]>([]);
   const DEFAULT_JOB_ROLES = ['취부', '용접', '사상', '도장', '반장', '조장', '기타'];
   const DEFAULT_POSITIONS = ['사장', '소장', '실장', '팀장', '조장', '반장', '사원'];
   const [newDeptName, setNewDeptName] = useState('');
   const [newJobRoleName, setNewJobRoleName] = useState('');
   const [newPositionName, setNewPositionName] = useState('');
+  const [newWorkplaceName, setNewWorkplaceName] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'ON_LEAVE' | 'RESIGNED'>('ALL');
   const [deptFilter, setDeptFilter] = useState<string>('ALL');
@@ -135,7 +139,7 @@ export const EmployeeManagement: React.FC = () => {
     departmentId: '',
     position: '사원',
     jobRole: '기타',
-    workplace: '',
+    workplace: '함정선체생산부',
     phoneNumber: '',
     birthDate: '',
     joinedAt: new Date().toISOString().split('T')[0],
@@ -164,18 +168,87 @@ export const EmployeeManagement: React.FC = () => {
     }, (error) => handleFirestoreError(error, OperationType.LIST, 'jobRoles'));
 
     const positionQuery = query(collection(db, 'positions'), orderBy('createdAt', 'asc'));
-    const unsubscribePositions = onSnapshot(positionQuery, async (snapshot) => {
+    const unsubscribePositions = onSnapshot(positionQuery, (snapshot) => {
       setPositions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any)));
-      await minLoadTime;
-      setLoading(false);
     }, (error) => handleFirestoreError(error, OperationType.LIST, 'positions'));
+
+    const workplaceQuery = query(collection(db, 'workplaces'), orderBy('createdAt', 'asc'));
+    const unsubscribeWorkplaces = onSnapshot(workplaceQuery, (snapshot) => {
+      const wpList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+      setWorkplaces(wpList);
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'workplaces'));
+
+    // Wait for minimum loading screen time before turning off full loader
+    minLoadTime.then(() => {
+      setLoading(false);
+    });
 
     return () => {
       unsubscribeUsers();
       unsubscribeDepts();
       unsubscribeJobRoles();
       unsubscribePositions();
+      unsubscribeWorkplaces();
     };
+  }, [profile]);
+
+  // One-time safe background check for default workplaces and user workplace migration
+  useEffect(() => {
+    if (!profile) return;
+
+    const isHR = (
+      ['CEO', 'DIRECTOR', 'GENERAL_AFFAIRS', 'GENERAL_MANAGER', 'CLERK'].includes(profile.role) || 
+      profile.permissions?.includes('employee_mgmt') ||
+      profile.email === 'tjrwnfjqm1@gmail.com'
+    );
+    if (!isHR) return;
+
+    const performSeedingAndMigration = async () => {
+      try {
+        // 1. Check and seed workplaces if missing (done via safe one-shot getDocs to avoid triggers)
+        const wpSnapshot = await getDocs(collection(db, 'workplaces'));
+        const wpNames = wpSnapshot.docs.map(d => d.data().name);
+        
+        if (!wpNames.includes('함정선체생산부')) {
+          await addDoc(collection(db, 'workplaces'), { 
+            name: '함정선체생산부', 
+            createdAt: new Date().toISOString() 
+          });
+        }
+        if (!wpNames.includes('중형선선체조립부')) {
+          await addDoc(collection(db, 'workplaces'), { 
+            name: '중형선선체조립부', 
+            createdAt: new Date().toISOString() 
+          });
+        }
+
+        // 2. Find any user whose workplace is empty or legacy null, and migrate to '함정선체생산부'
+        const usersSnapshot = await getDocs(collection(db, 'users'));
+        let migratedCount = 0;
+        const batch = writeBatch(db);
+
+        usersSnapshot.docs.forEach((userDoc) => {
+          const userData = userDoc.data();
+          const wpValue = userData.workplace;
+          if (!wpValue || wpValue.trim() === '') {
+            batch.update(doc(db, 'users', userDoc.id), { 
+              workplace: '함정선체생산부',
+              updatedAt: new Date().toISOString()
+            });
+            migratedCount++;
+          }
+        });
+
+        if (migratedCount > 0) {
+          await batch.commit();
+          toast.success(`기존 사원 ${migratedCount}명의 사업장을 '함정선체생산부'로 일괄 지정했습니다.`);
+        }
+      } catch (err) {
+        console.warn("Auto-seeding or migration failed in background:", err);
+      }
+    };
+
+    performSeedingAndMigration();
   }, [profile]);
 
   const handleRoleChange = async (uid: string, newRole: Role) => {
@@ -340,6 +413,7 @@ export const EmployeeManagement: React.FC = () => {
       setNewDeptName('');
       toast.success('새 부서가 추가되었습니다.');
     } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'departments');
       toast.error('부서 추가 중 오류가 발생했습니다.');
     }
   };
@@ -349,6 +423,7 @@ export const EmployeeManagement: React.FC = () => {
       await deleteDoc(doc(db, 'departments', id));
       toast.success('부서가 삭제되었습니다.');
     } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `departments/${id}`);
       toast.error('부서 삭제 중 오류가 발생했습니다.');
     }
   };
@@ -363,6 +438,7 @@ export const EmployeeManagement: React.FC = () => {
       setNewJobRoleName('');
       toast.success('새 직무가 추가되었습니다.');
     } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'jobRoles');
       toast.error('직무 추가 중 오류가 발생했습니다.');
     }
   };
@@ -372,6 +448,7 @@ export const EmployeeManagement: React.FC = () => {
       await deleteDoc(doc(db, 'jobRoles', id));
       toast.success('직무가 삭제되었습니다.');
     } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `jobRoles/${id}`);
       toast.error('직무 삭제 중 오류가 발생했습니다.');
     }
   };
@@ -386,6 +463,7 @@ export const EmployeeManagement: React.FC = () => {
       setNewPositionName('');
       toast.success('새 직위가 추가되었습니다.');
     } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'positions');
       toast.error('직위 추가 중 오류가 발생했습니다.');
     }
   };
@@ -395,7 +473,33 @@ export const EmployeeManagement: React.FC = () => {
       await deleteDoc(doc(db, 'positions', id));
       toast.success('직위가 삭제되었습니다.');
     } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `positions/${id}`);
       toast.error('직위 삭제 중 오류가 발생했습니다.');
+    }
+  };
+
+  const handleAddWorkplace = async () => {
+    if (!newWorkplaceName.trim()) return;
+    try {
+      await addDoc(collection(db, 'workplaces'), {
+        name: newWorkplaceName.trim(),
+        createdAt: new Date().toISOString()
+      });
+      setNewWorkplaceName('');
+      toast.success('새 사업장이 추가되었습니다.');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'workplaces');
+      toast.error('사업장 추가 중 오류가 발생했습니다.');
+    }
+  };
+
+  const handleDeleteWorkplace = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'workplaces', id));
+      toast.success('사업장이 삭제되었습니다.');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `workplaces/${id}`);
+      toast.error('사업장 삭제 중 오류가 발생했습니다.');
     }
   };
 
@@ -994,15 +1098,26 @@ export const EmployeeManagement: React.FC = () => {
                               </div>
                               <div className="space-y-2">
                                 <label className="text-[10px] font-black text-muted-foreground uppercase tracking-widest ml-1">사업장</label>
-                                <div className="relative">
-                                  <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/40" />
-                                  <Input 
-                                    value={newUser.workplace}
-                                    onChange={(e) => setNewUser({...newUser, workplace: e.target.value})}
-                                    placeholder="울산조선소"
-                                    className="h-12 pl-12 bg-muted border-border rounded-xl font-bold text-foreground placeholder:text-muted-foreground/30"
-                                  />
-                                </div>
+                                <Select value={newUser.workplace} onValueChange={(v) => setNewUser({...newUser, workplace: v})}>
+                                  <SelectTrigger className="h-12 bg-muted border-border rounded-xl font-bold text-left text-foreground">
+                                    <div className="flex items-center gap-2">
+                                      <MapPin className="w-4 h-4 text-muted-foreground/45" />
+                                      <SelectValue placeholder="사업장 선택" />
+                                    </div>
+                                  </SelectTrigger>
+                                  <SelectContent className="bg-card border-border rounded-xl text-foreground text-left">
+                                    {workplaces.length > 0 ? (
+                                      workplaces.map(wp => (
+                                        <SelectItem key={wp.id} value={wp.name} className="font-bold">{wp.name}</SelectItem>
+                                      ))
+                                    ) : (
+                                      <>
+                                        <SelectItem value="함정선체생산부" className="font-bold">함정선체생산부</SelectItem>
+                                        <SelectItem value="중형선선체조립부" className="font-bold">중형선선체조립부</SelectItem>
+                                      </>
+                                    )}
+                                  </SelectContent>
+                                </Select>
                               </div>
                             </div>
                             
@@ -1196,7 +1311,29 @@ export const EmployeeManagement: React.FC = () => {
 
         {isHRAdmin && (
         <TabsContent value="departments" className="space-y-8 outline-none">
-          <div className="grid lg:grid-cols-2 gap-8">
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <Card className="border-none shadow-sm bg-card rounded-2xl overflow-hidden border border-border">
+              <CardHeader className="pb-4 pt-6 px-6 bg-muted/30 border-b border-border">
+                <CardTitle className="text-base font-black tracking-tight flex items-center gap-2 text-rose-500">
+                  <Plus className="w-4 h-4 text-rose-500" /> 새 사업장 추가
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-6 space-y-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">사업장 명칭</label>
+                  <Input 
+                    placeholder="예: 중형선선체조립부" 
+                    value={newWorkplaceName}
+                    onChange={(e) => setNewWorkplaceName(e.target.value)}
+                    className="h-12 text-sm border-border bg-background rounded-xl focus:ring-primary/20 font-bold text-foreground placeholder:text-muted-foreground/30"
+                  />
+                </div>
+                <Button className="w-full h-12 gap-2 font-black text-sm rounded-xl shadow-lg active:scale-[0.98] transition-all bg-rose-600 hover:bg-rose-700 text-white" onClick={handleAddWorkplace}>
+                  사업장 생성하기
+                </Button>
+              </CardContent>
+            </Card>
+
             <Card className="border-none shadow-sm bg-card rounded-2xl overflow-hidden border border-border">
               <CardHeader className="pb-4 pt-6 px-6 bg-muted/30 border-b border-border">
                 <CardTitle className="text-base font-black tracking-tight flex items-center gap-2 text-foreground">
@@ -1264,7 +1401,47 @@ export const EmployeeManagement: React.FC = () => {
             </Card>
           </div>
 
-          <div className="grid lg:grid-cols-3 gap-8">
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="space-y-4">
+              <div className="flex items-center justify-between px-1">
+                <h3 className="text-[11px] font-black text-muted-foreground uppercase tracking-[0.2em]">사업장 목록 ({workplaces.length})</h3>
+                <div className="h-px flex-1 bg-border ml-4" />
+              </div>
+              
+              <div className="grid gap-3 max-h-[400px] overflow-y-auto no-scrollbar">
+                {workplaces.map((wp) => (
+                  <Card key={wp.id} className="border-none shadow-sm bg-muted/40 rounded-2xl border border-border">
+                    <CardContent className="p-5 flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 bg-rose-500/10 rounded-xl flex items-center justify-center text-rose-500">
+                          <MapPin className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <div className="font-black text-foreground tracking-tight">{wp.name}</div>
+                          <div className="text-[10px] text-muted-foreground font-bold">
+                            해당 사원: <span className="text-rose-500">{users.filter(u => u.workplace === wp.name).length}명</span>
+                          </div>
+                        </div>
+                      </div>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="w-10 h-10 rounded-xl text-muted-foreground/20 hover:text-destructive hover:bg-destructive/10 transition-colors"
+                        onClick={() => handleDeleteWorkplace(wp.id)}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ))}
+                {workplaces.length === 0 && (
+                  <div className="py-10 text-center text-muted-foreground/30 text-xs font-bold border border-dashed border-border rounded-2xl bg-muted/20">
+                    등록된 사업장이 없습니다.
+                  </div>
+                )}
+              </div>
+            </div>
+
             <div className="space-y-4">
               <div className="flex items-center justify-between px-1">
                 <h3 className="text-[11px] font-black text-muted-foreground uppercase tracking-[0.2em]">부서 목록 ({departments.length})</h3>
@@ -1539,6 +1716,38 @@ export const EmployeeManagement: React.FC = () => {
                     className="h-12 pl-12 bg-muted border-border rounded-xl font-bold text-foreground"
                   />
                 </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-muted-foreground uppercase tracking-widest ml-1">사업장</label>
+                <Select 
+                  value={editingUser?.workplace || '함정선체생산부'} 
+                  onValueChange={(v) => setEditingUser(prev => prev ? {...prev, workplace: v} : null)}
+                  disabled={!isHRAdmin}
+                >
+                  <SelectTrigger className="h-12 bg-muted border-border rounded-xl font-bold text-foreground">
+                    <div className="flex items-center gap-2">
+                      <MapPin className="w-4 h-4 text-muted-foreground/45" />
+                      <SelectValue placeholder="사업장 선택" />
+                    </div>
+                  </SelectTrigger>
+                  <SelectContent className="bg-card rounded-xl border-border text-foreground">
+                    {workplaces.length > 0 ? (
+                      workplaces.map(wp => <SelectItem key={wp.id} value={wp.name}>{wp.name}</SelectItem>)
+                    ) : (
+                      <>
+                        <SelectItem value="함정선체생산부">함정선체생산부</SelectItem>
+                        <SelectItem value="중형선선체조립부">중형선선체조립부</SelectItem>
+                      </>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2 opacity-0 pointer-events-none">
+                <label className="text-[10px] font-black text-muted-foreground uppercase tracking-widest ml-1">공백</label>
+                <div className="h-12" />
               </div>
             </div>
 

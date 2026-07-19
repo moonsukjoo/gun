@@ -45,6 +45,7 @@ export const GhostGuardTracker: React.FC = () => {
 
     // 2. 가속도 센서 시작
     let sensor: any = null;
+    let fallbackCleanup: (() => void) | null = null;
     
     const startSensor = async () => {
       if ('LinearAccelerationSensor' in window) {
@@ -89,7 +90,9 @@ export const GhostGuardTracker: React.FC = () => {
         }
       };
       window.addEventListener('devicemotion', handleMotion);
-      return () => window.removeEventListener('devicemotion', handleMotion);
+      fallbackCleanup = () => {
+        window.removeEventListener('devicemotion', handleMotion);
+      };
     };
 
     startSensor();
@@ -128,6 +131,7 @@ export const GhostGuardTracker: React.FC = () => {
 
     return () => {
       if (sensor) sensor.stop();
+      if (fallbackCleanup) fallbackCleanup();
       if (checkIntervalRef.current) clearInterval(checkIntervalRef.current);
       unsubscribeAttendance();
     };

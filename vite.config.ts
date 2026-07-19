@@ -11,16 +11,6 @@ export default defineConfig(({mode}) => {
     build: {
       outDir: 'dist',
       emptyOutDir: true,
-      rollupOptions: {
-        output: {
-          manualChunks: {
-            'vendor-react': ['react', 'react-dom', 'react-router-dom'],
-            'vendor-firebase': ['firebase/app', 'firebase/auth', 'firebase/firestore'],
-            'vendor-utils': ['lucide-react', 'sonner', 'framer-motion', 'clsx', 'tailwind-merge'],
-            'vendor-data': ['xlsx', 'jspdf', 'jspdf-autotable', 'recharts']
-          }
-        }
-      }
     },
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),

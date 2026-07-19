@@ -84,6 +84,18 @@ const EnclosedSpaceMonitoring: React.FC = () => {
     return latest;
   }).filter(Boolean) as BeaconLog[];
 
+  // Safe date formatting helper to avoid fatal RangeError crash
+  const safeFormatTime = (dateStr: any, pattern: string = 'HH:mm:ss') => {
+    if (!dateStr) return 'N/A';
+    try {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return 'N/A';
+      return format(d, pattern);
+    } catch (e) {
+      return 'N/A';
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background text-foreground pb-24 font-sans">
       {/* Header */}
@@ -155,7 +167,7 @@ const EnclosedSpaceMonitoring: React.FC = () => {
                         <h4 className="font-black text-foreground">{worker.userName}</h4>
                         <div className="flex items-center gap-1.5 text-[10px] font-bold text-muted-foreground mt-0.5">
                           <Clock className="w-3 h-3" />
-                          <span>{format(new Date(worker.detectedAt), 'HH:mm:ss')} 감지</span>
+                          <span>{safeFormatTime(worker.detectedAt, 'HH:mm:ss')} 감지</span>
                         </div>
                       </div>
                     </div>

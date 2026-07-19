@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { db } from '@/firebase';
+import { db, handleFirestoreError, OperationType } from '@/firebase';
 import { doc, onSnapshot, setDoc, updateDoc, increment, collection, query, where, getDocs } from 'firebase/firestore';
 import { EvacuationStatus, UserProfile } from '@/types';
 import { useAuth } from '@/components/AuthProvider';
@@ -19,8 +19,9 @@ export const EmergencyOverlay: React.FC = () => {
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
   const [checkinUids, setCheckinUids] = useState<Set<string>>(new Set());
   const [clockedInUids, setClockedInUids] = useState<Set<string>>(new Set());
-  const [viewingMissingList, setViewingMissingList] = useState<'clockedIn' | 'total' | null>(null);
+  const [viewingMissingList, setViewingMissingList] = useState<'clockedIn' | 'total'>('clockedIn');
   const [searchTerm, setSearchTerm] = useState('');
+  const [rollcallTab, setRollcallTab] = useState<'unconfirmed' | 'confirmed'>('unconfirmed');
 
   useEffect(() => {
     const unsubscribe = onSnapshot(doc(db, 'evacuation', 'status'), (snap) => {
@@ -30,6 +31,8 @@ export const EmergencyOverlay: React.FC = () => {
       } else {
         setStatus(null);
       }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'evacuation/status');
     });
     return () => unsubscribe();
   }, []);
@@ -39,6 +42,8 @@ export const EmergencyOverlay: React.FC = () => {
     if (!status?.isActive) return;
     const unsubscribe = onSnapshot(collection(db, 'users'), (snap) => {
       setAllUsers(snap.docs.map(doc => doc.data() as UserProfile));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'users');
     });
     return () => unsubscribe();
   }, [status?.isActive]);
@@ -48,6 +53,8 @@ export const EmergencyOverlay: React.FC = () => {
     if (!status?.isActive || !status.id) return;
     const unsubscribe = onSnapshot(collection(db, 'evacuations', status.id, 'checkins'), (snap) => {
       setCheckinUids(new Set(snap.docs.map(doc => doc.id)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, `evacuations/${status.id}/checkins`);
     });
     return () => unsubscribe();
   }, [status?.isActive, status?.id]);
@@ -66,6 +73,8 @@ export const EmergencyOverlay: React.FC = () => {
         }
       });
       setClockedInUids(uids);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'attendance');
     });
     return () => unsubscribe();
   }, [status?.isActive]);
@@ -78,6 +87,8 @@ export const EmergencyOverlay: React.FC = () => {
         if (snap.exists()) {
           setShowStats(true); // Automatically show stats once confirmed
         }
+      }, (error) => {
+        handleFirestoreError(error, OperationType.GET, `evacuations/${status.id}/checkins/${profile.uid}`);
       });
       return () => unsubscribeAuto();
     } else {
@@ -150,9 +161,30 @@ export const EmergencyOverlay: React.FC = () => {
         endedBy: endedBy
       }, { merge: true });
 
+      // 3. Clear pending FIRE incidents in real-time database to prevent ghost alerts
+      try {
+        const fireQuery = query(
+          collection(db, 'criticalIncidents'),
+          where('type', '==', 'FIRE'),
+          where('status', '==', 'PENDING')
+        );
+        const fireSnap = await getDocs(fireQuery);
+        for (const fireDoc of fireSnap.docs) {
+          await updateDoc(doc(db, 'criticalIncidents', fireDoc.id), {
+            status: 'RESOLVED',
+            resolvedAt: now,
+            resolvedByUid: profile?.uid || 'admin',
+            resolvedByName: profile?.displayName || '관리자',
+            resolutionText: '대피령 일괄 해제 / 상황 종료됨'
+          });
+        }
+      } catch (err) {
+        console.error("Failed to clear pending fire incidents:", err);
+      }
+
       toast.success('비상 상황이 종료되었습니다.');
       setShowStats(false);
-      setViewingMissingList(null);
+      setViewingMissingList('clockedIn');
     } catch (error) {
       console.error("End situation error:", error);
       // More descriptive error for the user
@@ -182,6 +214,19 @@ export const EmergencyOverlay: React.FC = () => {
     user.phoneNumber?.includes(searchTerm)
   );
 
+  const confirmedList = allUsers.filter(user => {
+    const isConfirmed = checkinUids.has(user.uid);
+    if (!isConfirmed) return false;
+
+    if (viewingMissingList === 'clockedIn') {
+      return clockedInUids.has(user.uid);
+    }
+    return true;
+  }).filter(user => 
+    user.displayName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    user.phoneNumber?.includes(searchTerm)
+  );
+
   if (!status?.isActive) return null;
 
   return (
@@ -198,86 +243,238 @@ export const EmergencyOverlay: React.FC = () => {
               scale: [1, 1.2, 1],
               opacity: [0.1, 0.3, 0.1]
             }}
-            transition={{ duration: 2, repeat: Infinity }}
-            className="w-full h-full bg-[radial-gradient(circle,white_0%,transparent_70%)]"
+            transition={{
+              duration: 5,
+              repeat: Infinity,
+              ease: "easeInOut"
+            }}
+            className="w-full h-full bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.15)_0%,transparent_100%)] bg-[size:100px_100px]"
           />
         </div>
 
         <motion.div
           initial={{ scale: 0.9, y: 20 }}
           animate={{ scale: 1, y: 0 }}
-          className="relative z-10 w-full max-w-lg bg-white rounded-[32px] md:rounded-[40px] p-6 md:p-8 shadow-2xl flex flex-col items-center text-center gap-4 max-h-[90vh] overflow-y-auto"
+          className={`relative z-10 w-full bg-white rounded-[32px] md:rounded-[40px] p-6 md:p-8 shadow-2xl flex flex-col items-center text-center gap-4 max-h-[92vh] overflow-y-auto transition-all duration-350 ${
+            showStats ? 'max-w-xl' : 'max-w-lg'
+          }`}
         >
-          <div className="w-16 h-16 bg-red-100 rounded-2xl flex items-center justify-center text-red-600 mb-0 shrink-0">
+          <div className="w-16 h-16 bg-red-100 rounded-2xl flex items-center justify-center text-red-600 mb-0 shrink-0 animate-pulse">
             <AlertTriangle className="w-8 h-8" />
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-1">
             <h1 className="text-2xl md:text-3xl font-black text-slate-900 tracking-tight">
               비상 대피령 발동
             </h1>
-            <p className="text-base md:text-lg font-bold text-slate-500 leading-relaxed px-2">
+            <p className="text-sm md:text-base font-bold text-slate-500 leading-relaxed px-2">
               {status.reason || '긴급 상황이 발생했습니다.'}
               <br />
               <span className="text-red-600">안전 구역으로 대피 후</span> 버튼을 눌러주세요.
             </p>
           </div>
 
-          <div className="w-full space-y-4">
+          <div className="w-full space-y-3">
             {hasConfirmed ? (
-              <div className="space-y-4 animate-in fade-in zoom-in duration-500">
+              <div className="w-full space-y-4 animate-in fade-in zoom-in duration-500">
                 {showStats ? (
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-1 gap-3">
+                  <div className="w-full space-y-4 text-left">
+                    {/* Horizontal side-by-side stats segment selection */}
+                    <div className="grid grid-cols-2 gap-3">
                       <button 
+                        type="button"
                         onClick={() => setViewingMissingList('clockedIn')}
-                        className="p-5 bg-blue-50 rounded-[28px] border-2 border-blue-100 flex flex-col items-center gap-1 transition-all hover:bg-blue-100 active:scale-95 group text-center"
+                        className={`p-4 rounded-2.5xl border-2 flex flex-col items-center gap-1 transition-all active:scale-95 text-center cursor-pointer ${
+                          viewingMissingList === 'clockedIn'
+                            ? 'bg-blue-50/80 border-blue-500 shadow-md shadow-blue-50'
+                            : 'bg-white border-slate-100 hover:bg-slate-50/80'
+                        }`}
                       >
-                        <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest group-hover:scale-105 transition-transform">출근 인원 생존율</p>
-                        <div className="flex items-baseline gap-1">
-                          <span className="text-4xl font-black text-blue-600">{status.confirmedCount || 0}</span>
-                          <span className="text-lg font-bold text-blue-300">/ {status.totalClockedIn || clockedInUids.size || '-'}</span>
+                        <p className={`text-[10px] font-black uppercase tracking-wider ${
+                          viewingMissingList === 'clockedIn' ? 'text-blue-600' : 'text-slate-400'
+                        }`}>출근자 대피율</p>
+                        <div className="flex items-baseline gap-0.5">
+                          <span className={`text-2xl font-black ${
+                            viewingMissingList === 'clockedIn' ? 'text-blue-600' : 'text-slate-700'
+                          }`}>{status.confirmedCount || 0}</span>
+                          <span className="text-xs font-bold text-slate-400">/ {status.totalClockedIn || clockedInUids.size || '-'}</span>
                         </div>
-                        <div className="w-full h-2.5 bg-blue-100 rounded-full mt-1 overflow-hidden">
-                          <motion.div 
-                            initial={{ width: 0 }}
-                            animate={{ width: `${((status.confirmedCount || 0) / (status.totalClockedIn || clockedInUids.size || 1)) * 100}%` }}
-                            className="h-full bg-blue-500"
+                        <div className="w-full h-1.5 bg-slate-100 rounded-full mt-1.5 overflow-hidden">
+                          <div 
+                            style={{ width: `${Math.min(100, ((status.confirmedCount || 0) / (status.totalClockedIn || clockedInUids.size || 1)) * 100)}%` }}
+                            className={`h-full ${viewingMissingList === 'clockedIn' ? 'bg-blue-500' : 'bg-slate-400'}`}
                           />
                         </div>
-                        <p className="text-[9px] font-black text-blue-400 mt-1 uppercase tracking-widest flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
-                          미확인 인원 확인 <Search className="w-2.5 h-2.5" />
-                        </p>
+                        <p className="text-[9px] font-bold text-slate-400/80 mt-1">터치시 정밀조회</p>
                       </button>
 
                       <button 
+                        type="button"
                         onClick={() => setViewingMissingList('total')}
-                        className="p-5 bg-emerald-50 rounded-[28px] border-2 border-emerald-100 flex flex-col items-center gap-1 transition-all hover:bg-emerald-100 active:scale-95 group text-center"
+                        className={`p-4 rounded-2.5xl border-2 flex flex-col items-center gap-1 transition-all active:scale-95 text-center cursor-pointer ${
+                          viewingMissingList === 'total'
+                            ? 'bg-emerald-50/80 border-emerald-500 shadow-md shadow-emerald-50'
+                            : 'bg-white border-slate-100 hover:bg-slate-50/80'
+                        }`}
                       >
-                        <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest group-hover:scale-105 transition-transform">전체 인원 생존율</p>
-                        <div className="flex items-baseline gap-1">
-                          <span className="text-4xl font-black text-emerald-600">{status.confirmedCount || 0}</span>
-                          <span className="text-lg font-bold text-emerald-300">/ {status.totalWorkers || allUsers.length || '-'}</span>
+                        <p className={`text-[10px] font-black uppercase tracking-wider ${
+                          viewingMissingList === 'total' ? 'text-emerald-600' : 'text-slate-400'
+                        }`}>전체 대원 대피율</p>
+                        <div className="flex items-baseline gap-0.5">
+                          <span className={`text-2xl font-black ${
+                            viewingMissingList === 'total' ? 'text-emerald-600' : 'text-slate-700'
+                          }`}>{status.confirmedCount || 0}</span>
+                          <span className="text-xs font-bold text-slate-400">/ {status.totalWorkers || allUsers.length || '-'}</span>
                         </div>
-                        <div className="w-full h-2.5 bg-emerald-100 rounded-full mt-1 overflow-hidden">
-                          <motion.div 
-                            initial={{ width: 0 }}
-                            animate={{ width: `${((status.confirmedCount || 0) / (status.totalWorkers || allUsers.length || 1)) * 100}%` }}
-                            className="h-full bg-emerald-500"
+                        <div className="w-full h-1.5 bg-slate-100 rounded-full mt-1.5 overflow-hidden">
+                          <div 
+                            style={{ width: `${Math.min(100, ((status.confirmedCount || 0) / (status.totalWorkers || allUsers.length || 1)) * 100)}%` }}
+                            className={`h-full ${viewingMissingList === 'total' ? 'bg-emerald-500' : 'bg-slate-400'}`}
                           />
                         </div>
-                        <p className="text-[9px] font-black text-emerald-400 mt-1 uppercase tracking-widest flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
-                          미확인 인원 확인 <Search className="w-2.5 h-2.5" />
-                        </p>
+                        <p className="text-[9px] font-bold text-slate-400/80 mt-1">터치시 정밀조회</p>
                       </button>
                     </div>
 
+                    {/* Separator / Header */}
+                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+                      <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">
+                        {viewingMissingList === 'clockedIn' ? '출근 단원 롤콜 명단' : '전체 단원 롤콜 명단'}
+                      </h2>
+                    </div>
+
+                    {/* Seamless Rollcall Tab selectors */}
+                    <div className="flex gap-2 bg-slate-50 p-1 rounded-xl">
+                      <button
+                        type="button"
+                        onClick={() => setRollcallTab('unconfirmed')}
+                        className={`flex-1 py-2 text-xs font-black rounded-lg transition-all border flex items-center justify-center gap-1.5 cursor-pointer ${
+                          rollcallTab === 'unconfirmed'
+                            ? 'bg-red-50 text-red-600 border-red-200 shadow-sm'
+                            : 'bg-transparent text-slate-400 border-transparent hover:text-slate-600'
+                        }`}
+                      >
+                        <AlertTriangle className="w-3.5 h-3.5" />
+                        미대피 확인 ({missingList.length}명)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRollcallTab('confirmed')}
+                        className={`flex-1 py-2 text-xs font-black rounded-lg transition-all border flex items-center justify-center gap-1.5 cursor-pointer ${
+                          rollcallTab === 'confirmed'
+                            ? 'bg-emerald-50 text-emerald-600 border-emerald-200 shadow-sm'
+                            : 'bg-transparent text-slate-400 border-transparent hover:text-slate-600'
+                        }`}
+                      >
+                        <CheckCircle className="w-3.5 h-3.5" />
+                        대피완료 ({confirmedList.length}명)
+                      </button>
+                    </div>
+
+                    {/* Search inside dashboard */}
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="이름 또는 전화번호 실시간 검색..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="w-full h-9 pl-8 pr-4 bg-slate-50 border border-slate-100 rounded-lg text-xs font-bold focus:ring-2 focus:ring-primary/20 text-slate-900 outline-none"
+                      />
+                    </div>
+
+                    {/* Live Scrollable List box */}
+                    <div className="w-full max-h-[180px] overflow-y-auto divide-y divide-slate-100 border border-slate-100 rounded-xl bg-slate-50/20 p-2 text-left">
+                      {rollcallTab === 'unconfirmed' ? (
+                        missingList.length > 0 ? (
+                          <div className="space-y-1.5">
+                            {missingList.map(user => (
+                              <div key={user.uid} className="flex items-center justify-between p-2.5 bg-red-50/15 rounded-lg border border-red-100/30">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <div className="w-7 h-7 rounded bg-red-100 text-red-600 flex items-center justify-center font-black text-xs shrink-0">
+                                    {user.displayName?.[0] || '?'}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-1">
+                                      <p className="text-xs font-black text-slate-900 truncate">{user.displayName}</p>
+                                      <span className="text-[7.5px] px-1 py-0.2 bg-red-100 text-red-600 font-black rounded">미대피</span>
+                                    </div>
+                                    <p className="text-[9px] font-bold text-slate-400 truncate tracking-tight">
+                                      {user.position || '대원'} | {user.departmentName || '협력팀'}
+                                    </p>
+                                  </div>
+                                </div>
+                                {user.phoneNumber ? (
+                                  <a 
+                                    href={`tel:${user.phoneNumber}`}
+                                    className="w-7 h-7 rounded-full bg-blue-500 hover:bg-blue-600 flex items-center justify-center text-white shadow-md active:scale-90 transition-all shrink-0 animate-bounce"
+                                    title="전화 바로걸기"
+                                  >
+                                    <Phone className="w-3.5 h-3.5 fill-current" />
+                                  </a>
+                                ) : (
+                                  <div className="text-[8.5px] font-semibold text-slate-300 shrink-0">
+                                    No Phone
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="py-6 text-center text-slate-400 text-xs font-bold">
+                            🎉 롤콜 명단 내 미대피 인원이 없습니다.
+                          </div>
+                        )
+                      ) : (
+                        confirmedList.length > 0 ? (
+                          <div className="space-y-1.5">
+                            {confirmedList.map(user => (
+                              <div key={user.uid} className="flex items-center justify-between p-2.5 bg-emerald-50/10 rounded-lg border border-emerald-100/30">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <div className="w-7 h-7 rounded bg-emerald-100 text-emerald-600 flex items-center justify-center font-black text-xs shrink-0">
+                                    {user.displayName?.[0] || '?'}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-1">
+                                      <p className="text-xs font-black text-slate-900 truncate">{user.displayName}</p>
+                                      <span className="text-[7.5px] px-1 py-0.2 bg-emerald-100 text-emerald-600 font-black rounded">대피완료</span>
+                                    </div>
+                                    <p className="text-[9px] font-bold text-slate-400 truncate tracking-tight">
+                                      {user.position || '대원'} | {user.departmentName || '협력팀'}
+                                    </p>
+                                  </div>
+                                </div>
+                                {user.phoneNumber ? (
+                                  <a 
+                                    href={`tel:${user.phoneNumber}`}
+                                    className="w-7 h-7 rounded-full bg-slate-200 hover:bg-slate-300 flex items-center justify-center text-slate-600 active:scale-90 transition-all shrink-0"
+                                    title="전화 바로걸기"
+                                  >
+                                    <Phone className="w-3 h-3 fill-current" />
+                                  </a>
+                                ) : (
+                                  <div className="text-[8.5px] font-semibold text-slate-300 shrink-0">
+                                    No Phone
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="py-6 text-center text-slate-400 text-xs font-bold">
+                            대피를 보고한 인원이 없습니다.
+                          </div>
+                        )
+                      )}
+                    </div>
+
                     <Button
+                      type="button"
                       onClick={() => setShowStats(false)}
                       variant="outline"
-                      className="w-full h-14 rounded-2xl border-slate-200 text-slate-500 font-bold text-sm"
+                      className="w-full h-11 rounded-lg border-slate-200 text-slate-500 font-bold text-xs"
                     >
-                      상태 확인 화면으로 돌아가기
+                      대피 상태 화면으로 돌아가기
                     </Button>
                   </div>
                 ) : (
@@ -288,19 +485,34 @@ export const EmergencyOverlay: React.FC = () => {
                     <CheckCircle className="w-12 h-12 text-green-500" />
                     <div className="text-center">
                       <p className="text-xl font-black text-green-700">생존 확인 완료</p>
-                      <p className="text-xs font-medium text-green-600 mt-1">실시간 현황을 보려면 터치하세요</p>
+                      <p className="text-xs font-medium text-green-600 mt-1">실시간 현황 및 전화 연락망 보려면 터치하세요</p>
                     </div>
                   </div>
                 )}
               </div>
             ) : (
-              <Button
-                onClick={handleConfirmSafety}
-                disabled={isSubmitting}
-                className="w-full h-20 rounded-[28px] bg-red-600 hover:bg-red-700 text-white text-xl font-black shadow-xl shadow-red-200 transition-all active:scale-95"
-              >
-                {isSubmitting ? '처리 중...' : '안전 확인 완료'}
-              </Button>
+              <div className="w-full space-y-3">
+                <Button
+                  onClick={handleConfirmSafety}
+                  disabled={isSubmitting}
+                  className="w-full h-20 rounded-[28px] bg-red-600 hover:bg-red-700 text-white text-xl font-black shadow-xl shadow-red-200 transition-all active:scale-95"
+                >
+                  {isSubmitting ? '처리 중...' : '안전 확인 완료'}
+                </Button>
+                
+                {isAuthorizedToEnd && (
+                  <Button
+                    onClick={() => {
+                      setHasConfirmed(true);
+                      setShowStats(true);
+                    }}
+                    variant="outline"
+                    className="w-full h-14 rounded-2xl border-red-200 bg-red-50 text-red-600 hover:bg-red-100 font-extrabold text-sm flex items-center justify-center gap-2 animate-bounce"
+                  >
+                    🔍 대피/롤콜 실시간 현황 및 전화 연락망 바로가기
+                  </Button>
+                )}
+              </div>
             )}
           </div>
 
@@ -329,101 +541,6 @@ export const EmergencyOverlay: React.FC = () => {
             </motion.div>
           )}
         </motion.div>
-
-        {/* Missing Person List Overlay */}
-        <AnimatePresence>
-          {viewingMissingList && (
-            <motion.div
-              initial={{ opacity: 0, y: '100%' }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: '100%' }}
-              className="absolute inset-0 z-[10000] bg-white flex flex-col"
-            >
-              <div className="px-6 pt-12 pb-6 flex items-center justify-between border-b border-slate-100">
-                <div>
-                  <h2 className="text-2xl font-black text-slate-900">
-                    {viewingMissingList === 'clockedIn' ? '출근자 미확인 명단' : '전체 미확인 명단'}
-                  </h2>
-                  <p className="text-sm font-bold text-red-500">생존 확인이 되지 않은 {missingList.length}명</p>
-                </div>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  onClick={() => {
-                    setViewingMissingList(null);
-                    setSearchTerm('');
-                  }}
-                  className="rounded-full w-12 h-12 bg-slate-50"
-                >
-                  <X className="w-6 h-6" />
-                </Button>
-              </div>
-
-              <div className="px-6 py-4">
-                <div className="relative">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="이름 또는 전화번호 검색..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full h-12 pl-10 pr-4 bg-slate-50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-primary/20"
-                  />
-                </div>
-              </div>
-
-              <div className="flex-1 overflow-y-auto px-6 pb-20">
-                {missingList.length > 0 ? (
-                  <div className="space-y-3">
-                    {missingList.map(user => (
-                      <div key={user.uid} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center font-black text-slate-400">
-                            {user.displayName?.[0] || '?'}
-                          </div>
-                          <div>
-                            <p className="text-sm font-black text-slate-900">{user.displayName}</p>
-                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
-                              {user.position} | {user.departmentName}
-                            </p>
-                          </div>
-                        </div>
-                        {user.phoneNumber ? (
-                          <a 
-                            href={`tel:${user.phoneNumber}`}
-                            className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-white shadow-lg shadow-blue-200 active:scale-90 transition-all"
-                          >
-                            < Phone className="w-5 h-5 fill-current" />
-                          </a>
-                        ) : (
-                          <div className="text-[10px] font-black text-slate-300 uppercase tracking-widest">
-                            No Phone
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="h-40 flex flex-col items-center justify-center text-center gap-3">
-                    <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-200">
-                      <UserMinus className="w-6 h-6" />
-                    </div>
-                    <p className="text-sm font-bold text-slate-400">미확인 인원이 없습니다.</p>
-                  </div>
-                )}
-              </div>
-              
-              <div className="p-6 bg-red-600">
-                <Button 
-                  onClick={() => setViewingMissingList(null)}
-                  className="w-full h-14 bg-white text-red-600 hover:bg-white/90 text-lg font-black rounded-2xl"
-                >
-                  닫기
-                </Button>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
       </motion.div>
     </AnimatePresence>
   );

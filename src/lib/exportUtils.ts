@@ -97,7 +97,14 @@ export const exportToPDF = async (title: string, headers: string[], data: any[][
           <tbody>
             ${data.map((row, idx) => `
               <tr style="background-color: ${idx % 2 === 0 ? '#ffffff' : '#f9fafb'}; border-bottom: 1px solid #f3f4f6;">
-                ${row.map(cell => `<td style="padding: 14px 12px; font-size: 13px; font-weight: 500; color: #374151;">${cell}</td>`).join('')}
+                ${row.map(cell => {
+                  const cellStr = (cell === undefined || cell === null) ? '' : String(cell).trim();
+                  const isImage = cellStr.startsWith('data:image/') || cellStr.startsWith('http://') || cellStr.startsWith('https://');
+                  const renderedVal = isImage 
+                    ? `<img src="${cellStr}" style="height: 28px; max-width: 80px; object-fit: contain;" />` 
+                    : cellStr;
+                  return `<td style="padding: 14px 12px; font-size: 13px; font-weight: 500; color: #374151; vertical-align: middle;">${renderedVal}</td>`;
+                }).join('')}
               </tr>
             `).join('')}
           </tbody>

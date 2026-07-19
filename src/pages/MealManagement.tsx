@@ -16,7 +16,7 @@ import {
   Check,
   X
 } from 'lucide-react';
-import { db } from '@/firebase';
+import { db, handleFirestoreError, OperationType } from '@/firebase';
 import { collection, query, where, orderBy, onSnapshot, updateDoc, doc } from 'firebase/firestore';
 import { LunchRequest, SnackRequest } from '@/types';
 import { format } from 'date-fns';
@@ -59,7 +59,8 @@ export const MealManagement: React.FC = () => {
   };
 
   const canManageMeal = profile && (
-    ['GENERAL_MANAGER', 'CLERK'].includes(profile.role) ||
+    ['GENERAL_MANAGER', 'CLERK', 'CEO'].includes(profile.role) ||
+    profile.permissions?.includes('meal_snack_mgmt') ||
     (profile.position && ['실장', '서무'].some(p => profile.position?.includes(p)))
   );
 
@@ -73,6 +74,8 @@ export const MealManagement: React.FC = () => {
 
     const unsubLunch = onSnapshot(lunchQ, (snap) => {
       setLunchRequests(snap.docs.map(d => ({ id: d.id, ...d.data() } as LunchRequest)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'lunchRequests');
     });
 
     let snackQ = query(collection(db, 'snackRequests'), orderBy('createdAt', 'desc'));
@@ -82,6 +85,8 @@ export const MealManagement: React.FC = () => {
 
     const unsubSnack = onSnapshot(snackQ, (snap) => {
       setSnackRequests(snap.docs.map(d => ({ id: d.id, ...d.data() } as SnackRequest)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'snackRequests');
     });
 
     return () => {

@@ -18,12 +18,14 @@ import {
   Plus, 
   Trash2, 
   CheckCircle2, 
+  Check,
   AlertCircle,
   ShieldCheck,
   Signature as SignatureIcon,
   Save,
   Send
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import SignatureCanvas from 'react-signature-canvas';
@@ -85,6 +87,56 @@ export const WorkInstructionReportPage: React.FC = () => {
   const [isSignOpen, setIsSignOpen] = useState(false);
   const [activeSignIdx, setActiveSignIdx] = useState<{ idx: number, type: 'before' | 'after' } | null>(null);
   const sigPad = useRef<SignatureCanvas>(null);
+  const [justSigned, setJustSigned] = useState<{ idx: number, type: 'before' | 'after' } | null>(null);
+
+  // Safely patch SignaturePad prototype through the active SignatureCanvas instance when dialog is opened
+  useEffect(() => {
+    if (isSignOpen) {
+      const timer = setTimeout(() => {
+        try {
+          const sigCanvasInstance = sigPad.current;
+          if (sigCanvasInstance) {
+            const pad = (sigCanvasInstance as any).getSignaturePad?.() || (sigCanvasInstance as any)._sigPad;
+            if (pad) {
+              const padProto = Object.getPrototypeOf(pad);
+              if (padProto) {
+                // Patch _strokeEnd
+                if (padProto._strokeEnd && !padProto._strokeEnd.__isPatched) {
+                  const originalStrokeEnd = padProto._strokeEnd;
+                  padProto._strokeEnd = function(event: any) {
+                    if (!this._activeStroke) {
+                      console.warn("SignaturePad: touch end occurred but no active stroke found. Crash prevented.");
+                      return;
+                    }
+                    originalStrokeEnd.call(this, event);
+                  };
+                  padProto._strokeEnd.__isPatched = true;
+                  console.log("Successfully patched _strokeEnd on SignaturePad prototype dynamically!");
+                }
+
+                // Patch _strokeUpdate
+                if (padProto._strokeUpdate && !padProto._strokeUpdate.__isPatched) {
+                  const originalStrokeUpdate = padProto._strokeUpdate;
+                  padProto._strokeUpdate = function(event: any) {
+                    if (!this._activeStroke) {
+                      console.warn("SignaturePad: touch move occurred but no active stroke found. Crash prevented.");
+                      return;
+                    }
+                    originalStrokeUpdate.call(this, event);
+                  };
+                  padProto._strokeUpdate.__isPatched = true;
+                  console.log("Successfully patched _strokeUpdate on SignaturePad prototype dynamically!");
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.warn("Error patching signature pad prototype dynamically:", err);
+        }
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [isSignOpen]);
 
   // Form State
   const [formData, setFormData] = useState<Partial<WorkInstructionReport>>({
@@ -240,23 +292,49 @@ export const WorkInstructionReportPage: React.FC = () => {
         return;
       }
       const dataUrl = sigPad.current.toDataURL();
-      const newInstructions = [...(formData.workerInstructions || [])];
-      
-      // Authorization check: Only self can sign if not supervisor
-      const targetWorker = newInstructions[activeSignIdx.idx];
-      if (!isSupervisor && targetWorker.workerUid !== profile?.uid) {
-        toast.error('본인의 서명만 가능합니다.');
-        return;
+      const currentIdx = activeSignIdx.idx;
+      const currentType = activeSignIdx.type;
+
+      if (currentIdx === -1) {
+        // Supervisor Signature
+        if (!isSupervisor) {
+          toast.error('관리감독자 권한이 없습니다.');
+          return;
+        }
+        handleUpdate({ supervisorSignUrl: dataUrl });
+      } else if (currentIdx === -2) {
+        // Safety Manager / Director Signature
+        const canSignSafety = profile?.role === 'SAFETY_MANAGER' || ['CEO', 'DIRECTOR', 'GENERAL_MANAGER'].includes(profile?.role || '');
+        if (!canSignSafety) {
+          toast.error('안전관리자 혹은 소장님만 서명할 수 있습니다.');
+          return;
+        }
+        handleUpdate({ safetyManagerSignUrl: dataUrl });
+      } else {
+        const newInstructions = [...(formData.workerInstructions || [])];
+        const targetWorker = newInstructions[currentIdx];
+        if (!isSupervisor && targetWorker.workerUid !== profile?.uid) {
+          toast.error('본인의 서명만 가능합니다.');
+          return;
+        }
+
+        if (currentType === 'before') {
+          newInstructions[currentIdx].signBeforeUrl = dataUrl;
+        } else {
+          newInstructions[currentIdx].signAfterUrl = dataUrl;
+        }
+        handleUpdate({ workerInstructions: newInstructions });
       }
 
-      if (activeSignIdx.type === 'before') {
-        newInstructions[activeSignIdx.idx].signBeforeUrl = dataUrl;
-      } else {
-        newInstructions[activeSignIdx.idx].signAfterUrl = dataUrl;
-      }
-      handleUpdate({ workerInstructions: newInstructions });
+      // Trigger smooth Framer Motion checkmark overlay
+      setJustSigned({ idx: currentIdx, type: currentType });
+      setTimeout(() => {
+        setJustSigned(null);
+      }, 3000);
+
       setIsSignOpen(false);
       setActiveSignIdx(null);
+      toast.success('서명이 완료되었습니다!');
     }
   };
 
@@ -292,7 +370,7 @@ export const WorkInstructionReportPage: React.FC = () => {
       
       await Promise.all(notificationPromises);
       toast.success('보고서가 최종 제출되었습니다.');
-      navigate('/');
+      navigate(-1);
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'workInstructionReports');
     } finally {
@@ -386,26 +464,117 @@ export const WorkInstructionReportPage: React.FC = () => {
                 <label className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">관리감독자 (팀장)</label>
                 <div className="w-1 h-1 bg-primary rounded-full" />
               </div>
-              <Input 
-                value={formData.supervisorName}
-                onChange={e => handleUpdate({ supervisorName: e.target.value })}
-                readOnly={!isSupervisor || formData.status === 'APPROVED'}
-                placeholder="팀장 성함"
-                className="h-12 bg-muted/30 border-border/50 rounded-xl font-bold focus:bg-card transition-all"
-              />
+              <div className="flex gap-2">
+                <Input 
+                  value={formData.supervisorName}
+                  onChange={e => handleUpdate({ supervisorName: e.target.value })}
+                  readOnly={!isSupervisor || formData.status === 'APPROVED'}
+                  placeholder="팀장 성함"
+                  className="h-12 bg-muted/30 border-border/50 rounded-xl font-bold focus:bg-card transition-all flex-[2]"
+                />
+                <div 
+                  id="supervisor-signature-box"
+                  className={cn(
+                    "relative h-12 bg-muted/20 border border-dashed border-border rounded-xl flex items-center justify-center cursor-pointer hover:bg-muted/40 transition-all flex-1 min-w-[100px] overflow-hidden",
+                    (!isSupervisor || formData.status === 'APPROVED') && "opacity-50 cursor-not-allowed"
+                  )}
+                  onClick={() => {
+                    if (!isSupervisor || formData.status === 'APPROVED') return;
+                    setActiveSignIdx({ idx: -1, type: 'before' });
+                    setIsSignOpen(true);
+                  }}
+                >
+                  {formData.supervisorSignUrl ? (
+                     <div className="relative w-full h-full flex items-center justify-center">
+                       <img src={formData.supervisorSignUrl} className="h-full object-contain mix-blend-multiply dark:mix-blend-normal" alt="supervisor-sign" />
+                       <div className="absolute bottom-1 right-1 bg-emerald-500 text-white rounded-full p-0.5 shadow-md shadow-emerald-500/30">
+                         <Check className="w-1.5 h-1.5" strokeWidth={4} />
+                       </div>
+
+                       <AnimatePresence>
+                         {justSigned?.idx === -1 && (
+                           <motion.div 
+                             initial={{ opacity: 0, scale: 0.6 }}
+                             animate={{ opacity: 1, scale: 1 }}
+                             exit={{ opacity: 0, scale: 0.8 }}
+                             className="absolute inset-0 bg-emerald-500/95 flex flex-col items-center justify-center rounded-xl z-10 pointer-events-none text-white text-[8px]"
+                             transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+                           >
+                             <Check className="w-5 h-5 text-white" strokeWidth={4} />
+                             <span className="font-black mt-0.5">서명됨</span>
+                           </motion.div>
+                         )}
+                       </AnimatePresence>
+                     </div>
+                  ) : (
+                     <div className="flex flex-col items-center justify-center gap-0.5 select-none">
+                       <SignatureIcon className="w-3.5 h-3.5 text-muted-foreground/30" />
+                       <span className="text-[8px] font-black text-muted-foreground/45">팀장 서명</span>
+                     </div>
+                  )}
+                </div>
+              </div>
             </div>
             <div className="space-y-2">
               <div className="flex items-center justify-between px-1">
                 <label className="text-[10px] font-black text-primary uppercase tracking-widest">안전보건관리책임자 (소장)</label>
                 <div className="w-1 h-1 bg-primary rounded-full shadow-[0_0_5px_rgba(49,130,246,0.5)]" />
               </div>
-              <Input 
-                value={formData.safetyManagerName || '김주영'}
-                onChange={e => handleUpdate({ safetyManagerName: e.target.value })}
-                readOnly={!isSupervisor || formData.status === 'APPROVED'}
-                placeholder="소장 성함"
-                className="h-12 bg-muted/30 border-border/50 rounded-xl font-black text-primary focus:bg-card transition-all"
-              />
+              <div className="flex gap-2">
+                <Input 
+                  value={formData.safetyManagerName || '김주영'}
+                  onChange={e => handleUpdate({ safetyManagerName: e.target.value })}
+                  readOnly={!isSupervisor || formData.status === 'APPROVED'}
+                  placeholder="소장 성함"
+                  className="h-12 bg-muted/30 border-border/50 rounded-xl font-black text-primary focus:bg-card transition-all flex-[2]"
+                />
+                <div 
+                  id="safety-manager-signature-box"
+                  className={cn(
+                    "relative h-12 bg-muted/20 border border-dashed border-border rounded-xl flex items-center justify-center cursor-pointer hover:bg-muted/40 transition-all flex-1 min-w-[100px] overflow-hidden",
+                    (formData.status === 'APPROVED') && "opacity-50 cursor-not-allowed"
+                  )}
+                  onClick={() => {
+                    if (formData.status === 'APPROVED') return;
+                    const canSignSafety = profile?.role === 'SAFETY_MANAGER' || ['CEO', 'DIRECTOR', 'GENERAL_MANAGER'].includes(profile?.role || '');
+                    if (!canSignSafety) {
+                      toast.error('안전관리자 혹은 소장님만 서명할 수 있습니다.');
+                      return;
+                    }
+                    setActiveSignIdx({ idx: -2, type: 'before' });
+                    setIsSignOpen(true);
+                  }}
+                >
+                  {formData.safetyManagerSignUrl ? (
+                     <div className="relative w-full h-full flex items-center justify-center">
+                       <img src={formData.safetyManagerSignUrl} className="h-full object-contain mix-blend-multiply dark:mix-blend-normal" alt="safety-manager-sign" />
+                       <div className="absolute bottom-1 right-1 bg-emerald-500 text-white rounded-full p-0.5 shadow-md shadow-emerald-500/30">
+                         <Check className="w-1.5 h-1.5" strokeWidth={4} />
+                       </div>
+
+                       <AnimatePresence>
+                         {justSigned?.idx === -2 && (
+                           <motion.div 
+                             initial={{ opacity: 0, scale: 0.6 }}
+                             animate={{ opacity: 1, scale: 1 }}
+                             exit={{ opacity: 0, scale: 0.8 }}
+                             className="absolute inset-0 bg-emerald-500/95 flex flex-col items-center justify-center rounded-xl z-10 pointer-events-none text-white text-[8px]"
+                             transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+                           >
+                             <Check className="w-5 h-5 text-white" strokeWidth={4} />
+                             <span className="font-black mt-0.5">승인됨</span>
+                           </motion.div>
+                         )}
+                       </AnimatePresence>
+                     </div>
+                  ) : (
+                     <div className="flex flex-col items-center justify-center gap-0.5 select-none">
+                       <SignatureIcon className="w-3.5 h-3.5 text-primary/30" />
+                       <span className="text-[8px] font-black text-primary/45">소장 서명</span>
+                     </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
           <div className="space-y-2">
@@ -449,81 +618,91 @@ export const WorkInstructionReportPage: React.FC = () => {
             </Button>
           )}
         </CardHeader>
-        <CardContent className="p-0 overflow-x-auto no-scrollbar">
-          <table className="w-full text-left border-collapse min-w-[800px]">
-             <thead>
-                <tr className="bg-muted/30">
-                  <th className="px-4 py-3 text-[10px] font-black text-muted-foreground uppercase text-center border-b border-border w-10">NO</th>
-                  <th className="px-4 py-3 text-[10px] font-black text-muted-foreground uppercase text-center border-b border-border w-24">성명</th>
-                  <th className="px-4 py-3 text-[10px] font-black text-muted-foreground uppercase border-b border-border">작업지시</th>
-                  <th className="px-4 py-3 text-[10px] font-black text-muted-foreground uppercase text-center border-b border-border w-24">건강</th>
-                  <th className="px-4 py-3 text-[10px] font-black text-muted-foreground uppercase text-center border-b border-border w-28">시간</th>
-                  <th className="px-4 py-3 text-[10px] font-black text-muted-foreground uppercase text-center border-b border-border w-20">작업전</th>
-                  <th className="px-4 py-3 text-[10px] font-black text-muted-foreground uppercase text-center border-b border-border w-20">작업후</th>
-                </tr>
-             </thead>
-             <tbody className="divide-y divide-border">
-                {formData.workerInstructions?.map((worker, idx) => {
-                  const canEditThisRow = isSupervisor || worker.workerUid === profile?.uid;
-                  return (
-                    <tr key={idx} className={cn(
-                      "hover:bg-muted/10 transition-colors border-b border-border last:border-0",
-                      worker.workerUid === profile?.uid && "bg-primary/5"
-                    )}>
-                      <td className="px-4 py-4 text-[10px] font-black text-center text-muted-foreground/50">{worker.no}</td>
-                      <td className="px-4 py-4">
+        <CardContent className="p-0">
+          {/* Mobile touch-friendly card list (hidden on desktop) */}
+          <div className="md:hidden divide-y divide-border/50 p-4 space-y-4">
+            {formData.workerInstructions?.map((worker, idx) => {
+              const canEditThisRow = isSupervisor || worker.workerUid === profile?.uid;
+              return (
+                <div key={idx} className={cn(
+                  "p-5 rounded-3xl border border-border bg-muted/10 space-y-4 relative overflow-hidden",
+                  worker.workerUid === profile?.uid && "bg-primary/5 border-primary/20"
+                )}>
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] font-black text-muted-foreground/50 uppercase tracking-widest">NO. {worker.no}</span>
+                    <Badge variant={worker.healthStatus === 'GOOD' ? 'default' : worker.healthStatus === 'BAD' ? 'destructive' : 'outline'} className="text-[9px] font-black rounded-lg">
+                      건강: {worker.healthStatus === 'GOOD' ? '좋음' : worker.healthStatus === 'BAD' ? '나쁨' : '보통'}
+                    </Badge>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-muted-foreground/60">성명</label>
                         <Input 
                           value={worker.workerName}
                           onChange={e => updateWorkerItem(idx, 'workerName', e.target.value)}
                           readOnly={!isSupervisor}
-                          className="h-9 bg-muted/20 border-border/50 rounded-lg font-black text-xs text-center"
+                          className="h-10 bg-muted/30 border-border/50 rounded-xl font-black text-xs text-center"
                         />
-                      </td>
-                      <td className="px-4 py-4">
-                        <Input 
-                          value={worker.instruction}
-                          onChange={e => updateWorkerItem(idx, 'instruction', e.target.value)}
-                          readOnly={!isSupervisor}
-                          className="h-9 bg-muted/20 border-border/50 rounded-lg font-bold text-xs"
-                          placeholder="작업 위치 및 내용"
-                        />
-                      </td>
-                      <td className="px-4 py-4">
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-muted-foreground/60">건강상태</label>
                         <select
-                          value={worker.healthStatus}
+                          value={worker.healthStatus || 'GOOD'}
                           onChange={e => updateWorkerItem(idx, 'healthStatus', e.target.value)}
                           disabled={!canEditThisRow}
-                          className="w-full h-9 bg-muted/20 border-border/50 rounded-lg text-[10px] font-black px-1.5 focus:ring-0 focus:border-primary transition-all outline-none"
+                          className="w-full h-10 bg-muted/30 border-border/55 rounded-xl text-xs font-black px-2 focus:ring-0 outline-none"
                         >
                           <option value="GOOD">좋음</option>
                           <option value="NORMAL">보통</option>
                           <option value="BAD">나쁨</option>
                         </select>
-                      </td>
-                      <td className="px-4 py-4">
-                        <div className="flex items-center gap-1">
-                          <Input 
-                            type="time"
-                            value={worker.startTime}
-                            onChange={e => updateWorkerItem(idx, 'startTime', e.target.value)}
-                            readOnly={!canEditThisRow}
-                            className="h-9 bg-muted/20 border-border/50 rounded-lg font-bold text-[10px] p-1"
-                          />
-                          <span className="text-muted-foreground/30">~</span>
-                          <Input 
-                            type="time"
-                            value={worker.endTime}
-                            onChange={e => updateWorkerItem(idx, 'endTime', e.target.value)}
-                            readOnly={!canEditThisRow}
-                            className="h-9 bg-muted/20 border-border/50 rounded-lg font-bold text-[10px] p-1 text-primary"
-                          />
-                        </div>
-                      </td>
-                      <td className="px-2 py-4 text-center">
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-bold text-muted-foreground/60">작업지시</label>
+                      <Input 
+                        value={worker.instruction}
+                        onChange={e => updateWorkerItem(idx, 'instruction', e.target.value)}
+                        readOnly={!isSupervisor}
+                        className="h-10 bg-muted/30 border-border/50 rounded-xl font-bold text-xs"
+                        placeholder="작업 위치 및 내용"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-muted-foreground/60">시작 시간</label>
+                        <Input 
+                          type="time"
+                          value={worker.startTime}
+                          onChange={e => updateWorkerItem(idx, 'startTime', e.target.value)}
+                          readOnly={!canEditThisRow}
+                          className="h-10 bg-muted/30 border-border/55 rounded-xl font-bold text-xs"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-muted-foreground/60">종료 시간</label>
+                        <Input 
+                          type="time"
+                          value={worker.endTime}
+                          onChange={e => updateWorkerItem(idx, 'endTime', e.target.value)}
+                          readOnly={!canEditThisRow}
+                          className="h-10 bg-muted/30 border-border/55 rounded-xl font-bold text-xs text-primary"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Highly visible mobile signature areas */}
+                    <div className="grid grid-cols-2 gap-3 pt-2">
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-muted-foreground uppercase">작업 전 서명</label>
                         <div 
                           className={cn(
-                            "w-12 h-12 bg-muted/20 rounded-xl flex items-center justify-center cursor-pointer border border-dashed border-border/50 overflow-hidden hover:bg-muted/40 transition-all",
-                            !canEditThisRow && "opacity-50 cursor-not-allowed"
+                            "relative h-16 bg-muted/35 border border-dashed border-border rounded-xl flex items-center justify-center cursor-pointer hover:bg-muted/50 transition-all",
+                            !canEditThisRow && "opacity-55 cursor-not-allowed"
                           )}
                           onClick={() => {
                             if (!canEditThisRow) return;
@@ -532,17 +711,42 @@ export const WorkInstructionReportPage: React.FC = () => {
                           }}
                         >
                           {worker.signBeforeUrl ? (
-                             <img src={worker.signBeforeUrl} className="w-full h-full object-contain mix-blend-multiply dark:mix-blend-normal" alt="sign" />
+                             <div className="relative w-full h-full flex items-center justify-center">
+                               <img src={worker.signBeforeUrl} className="h-full object-contain mix-blend-multiply dark:mix-blend-normal" alt="sign" />
+                               <div className="absolute bottom-1 right-1 bg-emerald-500 text-white rounded-full p-0.5 shadow-md shadow-emerald-500/30">
+                                 <Check className="w-1.5 h-1.5" strokeWidth={4} />
+                               </div>
+
+                               <AnimatePresence>
+                                 {justSigned?.idx === idx && justSigned?.type === 'before' && (
+                                   <motion.div 
+                                     initial={{ opacity: 0, scale: 0.6 }}
+                                     animate={{ opacity: 1, scale: 1 }}
+                                     exit={{ opacity: 0, scale: 0.8 }}
+                                     className="absolute inset-0 bg-emerald-500/90 flex flex-col items-center justify-center rounded-xl z- z-10 pointer-events-none text-white text-[8px]"
+                                     transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+                                   >
+                                     <Check className="w-5 h-5 text-white" strokeWidth={4} />
+                                     <span className="font-black mt-0.5">서명 완료</span>
+                                   </motion.div>
+                                 )}
+                               </AnimatePresence>
+                             </div>
                           ) : (
-                             <SignatureIcon className="w-3 h-3 text-muted-foreground/30" />
+                             <div className="flex flex-col items-center gap-0.5">
+                               <SignatureIcon className="w-4 h-4 text-muted-foreground/30" />
+                               <span className="text-[9px] font-black text-muted-foreground/45">서명하기</span>
+                             </div>
                           )}
                         </div>
-                      </td>
-                      <td className="px-2 py-4 text-center">
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-primary uppercase">작업 후 서명</label>
                         <div 
                           className={cn(
-                            "w-12 h-12 bg-muted/20 rounded-xl flex items-center justify-center cursor-pointer border border-dashed border-border/50 overflow-hidden hover:bg-muted/40 transition-all",
-                            !canEditThisRow && "opacity-50 cursor-not-allowed"
+                            "relative h-16 bg-muted/35 border border-dashed border-border rounded-xl flex items-center justify-center cursor-pointer hover:bg-muted/50 transition-all",
+                            !canEditThisRow && "opacity-55 cursor-not-allowed"
                           )}
                           onClick={() => {
                             if (!canEditThisRow) return;
@@ -551,17 +755,215 @@ export const WorkInstructionReportPage: React.FC = () => {
                           }}
                         >
                           {worker.signAfterUrl ? (
-                             <img src={worker.signAfterUrl} className="w-full h-full object-contain mix-blend-multiply dark:mix-blend-normal text-primary" alt="sign" />
+                             <div className="relative w-full h-full flex items-center justify-center">
+                               <img src={worker.signAfterUrl} className="h-full object-contain mix-blend-multiply dark:mix-blend-normal" alt="sign" />
+                               <div className="absolute bottom-1 right-1 bg-emerald-500 text-white rounded-full p-0.5 shadow-md shadow-emerald-500/30">
+                                 <Check className="w-1.5 h-1.5" strokeWidth={4} />
+                               </div>
+
+                               <AnimatePresence>
+                                 {justSigned?.idx === idx && justSigned?.type === 'after' && (
+                                   <motion.div 
+                                     initial={{ opacity: 0, scale: 0.6 }}
+                                     animate={{ opacity: 1, scale: 1 }}
+                                     exit={{ opacity: 0, scale: 0.8 }}
+                                     className="absolute inset-0 bg-emerald-500/90 flex flex-col items-center justify-center rounded-xl z- z-10 pointer-events-none text-white text-[8px]"
+                                     transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+                                   >
+                                     <Check className="w-5 h-5 text-white" strokeWidth={4} />
+                                     <span className="font-black mt-0.5">서명 완료</span>
+                                   </motion.div>
+                                 )}
+                               </AnimatePresence>
+                             </div>
                           ) : (
-                             <SignatureIcon className="w-3 h-3 text-primary/30" />
+                             <div className="flex flex-col items-center gap-0.5">
+                               <SignatureIcon className="w-4 h-4 text-primary/30" />
+                               <span className="text-[9px] font-black text-primary/45">서명하기</span>
+                             </div>
                           )}
                         </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-             </tbody>
-          </table>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Desktop Table view (hidden on mobile, shown on md screens) */}
+          <div className="hidden md:block overflow-x-auto no-scrollbar">
+            <table className="w-full text-left border-collapse min-w-[800px]">
+               <thead>
+                  <tr className="bg-muted/30">
+                    <th className="px-4 py-3 text-[10px] font-black text-muted-foreground uppercase text-center border-b border-border w-10">NO</th>
+                    <th className="px-4 py-3 text-[10px] font-black text-muted-foreground uppercase text-center border-b border-border w-24">성명</th>
+                    <th className="px-4 py-3 text-[10px] font-black text-muted-foreground uppercase border-b border-border">작업지시</th>
+                    <th className="px-4 py-3 text-[10px] font-black text-muted-foreground uppercase text-center border-b border-border w-24">건강</th>
+                    <th className="px-4 py-3 text-[10px] font-black text-muted-foreground uppercase text-center border-b border-border w-28">시간</th>
+                    <th className="px-4 py-3 text-[10px] font-black text-muted-foreground uppercase text-center border-b border-border w-20">작업전</th>
+                    <th className="px-4 py-3 text-[10px] font-black text-muted-foreground uppercase text-center border-b border-border w-20">작업후</th>
+                  </tr>
+               </thead>
+               <tbody className="divide-y divide-border">
+                  {formData.workerInstructions?.map((worker, idx) => {
+                    const canEditThisRow = isSupervisor || worker.workerUid === profile?.uid;
+                    return (
+                      <tr key={idx} className={cn(
+                        "hover:bg-muted/10 transition-colors border-b border-border last:border-0",
+                        worker.workerUid === profile?.uid && "bg-primary/5"
+                      )}>
+                        <td className="px-4 py-4 text-[10px] font-black text-center text-muted-foreground/50">{worker.no}</td>
+                        <td className="px-4 py-4">
+                          <Input 
+                            value={worker.workerName}
+                            onChange={e => updateWorkerItem(idx, 'workerName', e.target.value)}
+                            readOnly={!isSupervisor}
+                            className="h-9 bg-muted/20 border-border/50 rounded-lg font-black text-xs text-center"
+                          />
+                        </td>
+                        <td className="px-4 py-4">
+                          <Input 
+                            value={worker.instruction}
+                            onChange={e => updateWorkerItem(idx, 'instruction', e.target.value)}
+                            readOnly={!isSupervisor}
+                            className="h-9 bg-muted/20 border-border/50 rounded-lg font-bold text-xs"
+                            placeholder="작업 위치 및 내용"
+                          />
+                        </td>
+                        <td className="px-4 py-4">
+                          <select
+                            value={worker.healthStatus}
+                            onChange={e => updateWorkerItem(idx, 'healthStatus', e.target.value)}
+                            disabled={!canEditThisRow}
+                            className="w-full h-9 bg-muted/20 border-border/50 rounded-lg text-[10px] font-black px-1.5 focus:ring-0 focus:border-primary transition-all outline-none"
+                          >
+                            <option value="GOOD">좋음</option>
+                            <option value="NORMAL">보통</option>
+                            <option value="BAD">나쁨</option>
+                          </select>
+                        </td>
+                        <td className="px-4 py-4">
+                          <div className="flex items-center gap-1">
+                            <Input 
+                              type="time"
+                              value={worker.startTime}
+                              onChange={e => updateWorkerItem(idx, 'startTime', e.target.value)}
+                              readOnly={!canEditThisRow}
+                              className="h-9 bg-muted/20 border-border/50 rounded-lg font-bold text-[10px] p-1"
+                            />
+                            <span className="text-muted-foreground/30">~</span>
+                            <Input 
+                              type="time"
+                              value={worker.endTime}
+                              onChange={e => updateWorkerItem(idx, 'endTime', e.target.value)}
+                              readOnly={!canEditThisRow}
+                              className="h-9 bg-muted/20 border-border/50 rounded-lg font-bold text-[10px] p-1 text-primary"
+                            />
+                          </div>
+                        </td>
+                        <td className="px-2 py-4 text-center">
+                          <div 
+                            className={cn(
+                              "w-12 h-12 bg-muted/20 rounded-xl flex items-center justify-center cursor-pointer border border-dashed border-border/50 overflow-hidden hover:bg-muted/40 transition-all relative mx-auto",
+                              !canEditThisRow && "opacity-50 cursor-not-allowed"
+                            )}
+                            onClick={() => {
+                              if (!canEditThisRow) return;
+                              setActiveSignIdx({ idx, type: 'before' });
+                              setIsSignOpen(true);
+                            }}
+                          >
+                            {worker.signBeforeUrl ? (
+                              <div className="relative w-full h-full flex items-center justify-center">
+                                <img src={worker.signBeforeUrl} className="w-full h-full object-contain mix-blend-multiply dark:mix-blend-normal" alt="sign" />
+                                
+                                {/* Small permanent corner badge checkmark */}
+                                <div className="absolute bottom-1 right-1 bg-emerald-500 text-white rounded-full p-0.5 shadow-md shadow-emerald-500/30">
+                                  <Check className="w-1.5 h-1.5" strokeWidth={4} />
+                                </div>
+  
+                                {/* Highlight Full Face Overlay animation for 3 seconds on justSigned */}
+                                <AnimatePresence>
+                                  {justSigned?.idx === idx && justSigned?.type === 'before' && (
+                                    <motion.div 
+                                      initial={{ opacity: 0, scale: 0.6 }}
+                                      animate={{ opacity: 1, scale: 1 }}
+                                      exit={{ opacity: 0, scale: 0.8 }}
+                                      className="absolute inset-0 bg-emerald-500/90 flex flex-col items-center justify-center rounded-xl z-10 pointer-events-none text-white"
+                                      transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+                                    >
+                                      <motion.div
+                                        initial={{ scale: 0, rotate: -45 }}
+                                        animate={{ scale: 1, rotate: 0 }}
+                                        transition={{ delay: 0.05, type: "spring", stiffness: 300, damping: 15 }}
+                                      >
+                                        <Check className="w-5 h-5 text-white" strokeWidth={4} />
+                                      </motion.div>
+                                      <span className="text-[7px] font-black tracking-widest text-white/95 uppercase mt-0.5">서명됨</span>
+                                    </motion.div>
+                                  )}
+                                </AnimatePresence>
+                              </div>
+                            ) : (
+                              <SignatureIcon className="w-3 h-3 text-muted-foreground/30" />
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-2 py-4 text-center">
+                          <div 
+                            className={cn(
+                              "w-12 h-12 bg-muted/20 rounded-xl flex items-center justify-center cursor-pointer border border-dashed border-border/50 overflow-hidden hover:bg-muted/40 transition-all relative mx-auto",
+                              !canEditThisRow && "opacity-50 cursor-not-allowed"
+                            )}
+                            onClick={() => {
+                              if (!canEditThisRow) return;
+                              setActiveSignIdx({ idx, type: 'after' });
+                              setIsSignOpen(true);
+                            }}
+                          >
+                            {worker.signAfterUrl ? (
+                              <div className="relative w-full h-full flex items-center justify-center">
+                                <img src={worker.signAfterUrl} className="w-full h-full object-contain mix-blend-multiply dark:mix-blend-normal text-primary" alt="sign" />
+                                
+                                {/* Small permanent corner badge checkmark */}
+                                <div className="absolute bottom-1 right-1 bg-emerald-500 text-white rounded-full p-0.5 shadow-md shadow-emerald-500/30">
+                                  <Check className="w-1.5 h-1.5" strokeWidth={4} />
+                                </div>
+  
+                                {/* Highlight Full Face Overlay animation for 3 seconds on justSigned */}
+                                <AnimatePresence>
+                                  {justSigned?.idx === idx && justSigned?.type === 'after' && (
+                                    <motion.div 
+                                      initial={{ opacity: 0, scale: 0.6 }}
+                                      animate={{ opacity: 1, scale: 1 }}
+                                      exit={{ opacity: 0, scale: 0.8 }}
+                                      className="absolute inset-0 bg-emerald-500/90 flex flex-col items-center justify-center rounded-xl z-10 pointer-events-none text-white"
+                                      transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+                                    >
+                                      <motion.div
+                                        initial={{ scale: 0, rotate: -45 }}
+                                        animate={{ scale: 1, rotate: 0 }}
+                                        transition={{ delay: 0.05, type: "spring", stiffness: 300, damping: 15 }}
+                                      >
+                                        <Check className="w-5 h-5 text-white" strokeWidth={4} />
+                                      </motion.div>
+                                      <span className="text-[7px] font-black tracking-widest text-white/95 uppercase mt-0.5">서명됨</span>
+                                    </motion.div>
+                                  )}
+                                </AnimatePresence>
+                              </div>
+                            ) : (
+                              <SignatureIcon className="w-3 h-3 text-primary/30" />
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+               </tbody>
+            </table>
+          </div>
         </CardContent>
       </Card>
 

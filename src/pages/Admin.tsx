@@ -43,10 +43,14 @@ import {
   FileBarChart,
   Activity,
   Target,
-  Anchor
+  Anchor,
+  Utensils,
+  History,
+  BookOpen,
+  User
 } from 'lucide-react';
 import { db } from '@/firebase';
-import { collection, query, onSnapshot, updateDoc, doc, setDoc, getDocs, where } from 'firebase/firestore';
+import { collection, query, onSnapshot, updateDoc, doc, setDoc, getDocs, where, addDoc, deleteDoc, orderBy, limit } from 'firebase/firestore';
 import { UserProfile } from '@/types';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -63,7 +67,8 @@ const PERMISSIONS = [
   { id: 'redemption_mgmt', label: '현물 신청 관리', icon: CircleDollarSign },
   { id: 'attendance_mgmt', label: '근태 관리', icon: Clock },
   { id: 'work_log_mgmt', label: '작업일지 관리', icon: ClipboardList },
-  { id: 'training_mgmt', label: '교육/평가 관리', icon: HardHat },
+  { id: 'training_mgmt', label: '일반 교육/평가 관리', icon: HardHat },
+  { id: 'statutory_training_mgmt', label: '법정 정기교육 관리', icon: ShieldCheck },
   { id: 'safety_score_admin', label: '안전지수 설정/관리', icon: ShieldCheck },
   { id: 'pc_dashboard', label: 'PC 통합 대시보드', icon: LayoutDashboard, color: 'bg-emerald-600' },
   { id: 'payslip_mgmt', label: '급여명세서 관리', icon: CircleDollarSign },
@@ -74,6 +79,7 @@ const PERMISSIONS = [
   { id: 'health_mgmt', label: '보건관리(이상무) 보고 권한', icon: Activity },
   { id: 'report_mgmt', label: '통합 보고서 관리 권한', icon: FileBarChart },
   { id: 'team_work_log_approve', label: '팀원 작업일지 승인 권한', icon: CheckCircle2 },
+  { id: 'meal_snack_mgmt', label: '도시락 및 간식 신청 관리', icon: Utensils }
 ];
 
 import { GlowLoading } from '@/components/GlowLoading';
@@ -97,8 +103,17 @@ export const Admin: React.FC = () => {
   const [isSafetySensorSettingsOpen, setIsSafetySensorSettingsOpen] = useState(false);
   const [isSafetyTimeoutSettingsOpen, setIsSafetyTimeoutSettingsOpen] = useState(false);
   const [isEmergencyOpen, setIsEmergencyOpen] = useState(false);
+  const [isDBResetOpen, setIsDBResetOpen] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+  const [resetConfirmText, setResetConfirmText] = useState('');
   const [loading, setLoading] = useState(true);
   const [activeCategory, setActiveCategory] = useState<'hr' | 'safety' | 'system'>('hr');
+
+  // Emergency Incident History states
+  const [isIncidentHistoryOpen, setIsIncidentHistoryOpen] = useState(false);
+  const [incidentHistory, setIncidentHistory] = useState<any[]>([]);
+  const [historyTypeFilter, setHistoryTypeFilter] = useState<string>('ALL');
+  const [historySearchTerm, setHistorySearchTerm] = useState('');
 
   const [shipRaceProbs, setShipRaceProbs] = useState<number[]>([1, 1, 1, 1, 1]);
   const [snailRaceProbs, setSnailRaceProbs] = useState<number[]>([1, 1, 1, 1, 1]);
@@ -129,7 +144,7 @@ export const Admin: React.FC = () => {
   });
   const [safetySensorSettings, setSafetySensorSettings] = useState({
     sensitivityLevel: 3,
-    impactThreshold: 90.0,
+    impactThreshold: 110.0,
     fallThreshold: 2.5,
     fallDuration: 250,
     sosTimeout: 15
@@ -240,6 +255,27 @@ export const Admin: React.FC = () => {
     };
   }, [profile]);
 
+  // Fetch resolved emergency critical incidents logs
+  const fetchIncidentHistory = async () => {
+    try {
+      const q = query(
+        collection(db, 'criticalIncidents'),
+        where('status', '==', 'RESOLVED'),
+        orderBy('resolvedAt', 'desc'),
+        limit(150)
+      );
+      const snapshot = await getDocs(q);
+      const historyList = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setIncidentHistory(historyList);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.LIST, 'criticalIncidents_history');
+      toast.error("이력 데이터를 가져오는 중 오류가 발생했습니다.");
+    }
+  };
+
   useEffect(() => {
     const filtered = users.filter(user => 
       user.displayName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -249,6 +285,10 @@ export const Admin: React.FC = () => {
   }, [searchTerm, users]);
 
   const handleTogglePermission = async (userId: string, permissionId: string) => {
+    if (profile?.role !== 'CEO') {
+      toast.error('대표이사 직급만 권한 관리가 가능합니다.');
+      return;
+    }
     const user = users.find(u => u.uid === userId);
     if (!user) return;
     const current = user.permissions || [];
@@ -257,6 +297,83 @@ export const Admin: React.FC = () => {
       await updateDoc(doc(db, 'users', userId), { permissions: updated });
       toast.success('권한 업데이트 완료');
     } catch (e) { toast.error('권한 업데이트 실패'); }
+  };
+
+  const handleResetData = async () => {
+    if (resetConfirmText !== '초기화 실행') {
+      toast.error("'초기화 실행'을 정확히 입력해주세요.");
+      return;
+    }
+    
+    setIsResetting(true);
+    const toastId = toast.loading('데이터 초기화를 시작합니다...');
+
+    const collectionsToReset = [
+      'attendance',
+      'praiseCoupons',
+      'praises',
+      'safetyScoreLogs',
+      'workInstructionReports',
+      'workLogs',
+      'teamWorkLogs',
+      'personalWorkLogs',
+      'lunchRequests',
+      'snackRequests',
+      'healthReports',
+      'criticalIncidents',
+      'emergencyLogs',
+      'notifications',
+      'lottoHistory',
+      'trainingResults',
+      'trainingRecords',
+      'statutoryCompletions',
+      'redemptionRequests',
+      'payslips',
+      'beaconLogs',
+      'accidentCases',
+      'leaveRequests',
+      'userShipParts'
+    ];
+
+    try {
+      // 1. Delete all documents in transactional collections
+      for (const colName of collectionsToReset) {
+        try {
+          const q = collection(db, colName);
+          const snap = await getDocs(q);
+          const deletePromises = snap.docs.map(docRef => deleteDoc(doc(db, colName, docRef.id)));
+          await Promise.all(deletePromises);
+        } catch (err) {
+          console.error(`Failed to clear collection ${colName}:`, err);
+        }
+      }
+
+      // 2. Reset user attributes
+      const usersSnap = await getDocs(collection(db, 'users'));
+      const userResetPromises = usersSnap.docs.map(userDoc => {
+        return updateDoc(doc(db, 'users', userDoc.id), {
+          points: 0,
+          safetyScore: 100,
+          kudosCount: 0,
+          monthlyKudosCount: 0,
+          currentAltitude: 0,
+          isImmobile: false,
+          ghostGuardEnabled: false,
+          altitudeUpdatedAt: null,
+          lastMovementAt: null
+        });
+      });
+      await Promise.all(userResetPromises);
+
+      toast.success('실운영을 위한 트랜잭션 데이터 초기화가 성공적으로 완료되었습니다.', { id: toastId });
+      setIsDBResetOpen(false);
+      setResetConfirmText('');
+    } catch (e) {
+      console.error(e);
+      toast.error('데이터 초기화 중 오류가 발생했습니다.', { id: toastId });
+    } finally {
+      setIsResetting(false);
+    }
   };
 
   const categorizedLinks = {
@@ -271,27 +388,31 @@ export const Admin: React.FC = () => {
       { to: '/admin/reports', label: '통합 보고서 관리', icon: FileBarChart, permission: 'admin', color: 'text-blue-300', bgColor: 'bg-blue-500/20' },
     ],
     safety: [
+      { to: '/admin/pc/attendance-status', label: '실시간 출근현황', icon: Users, permission: 'admin', color: 'text-teal-400', bgColor: 'bg-teal-500/20', requiresCEO: true },
       { onClick: () => navigate('/high-work-monitor'), label: '고소작업 현황', icon: BarChart3, permission: 'high_work_monitor', color: 'text-rose-400', bgColor: 'bg-rose-500/20' },
       { onClick: () => setIsEmergencyOpen(true), label: '비상 대피 (롤콜)', icon: AlertTriangle, permission: 'emergency_rollcall', color: 'text-red-400', bgColor: 'bg-red-500/20' },
+      { onClick: () => { fetchIncidentHistory(); setIsIncidentHistoryOpen(true); }, label: '긴급 이력/대처 조회', icon: History, permission: 'admin', color: 'text-amber-400', bgColor: 'bg-amber-500/20' },
       { to: '/accidents', label: '사고즉보 관리', icon: ShieldAlert, permission: 'accident_mgmt', color: 'text-orange-400', bgColor: 'bg-orange-500/20' },
       { to: '/health-mgmt', label: '보건관리 보고', icon: Activity, permission: 'health_mgmt', color: 'text-pink-400', bgColor: 'bg-pink-500/20' },
       { to: '/enclosed-monitoring', label: '밀폐공간 관제', icon: Radio, permission: 'admin', color: 'text-rose-300', bgColor: 'bg-rose-500/20' },
-      { onClick: () => setIsSafetyTimeoutSettingsOpen(true), label: '충격 SOS 대기 설정', icon: Clock, permission: 'admin', color: 'text-rose-400', bgColor: 'bg-rose-500/20' },
+      { onClick: () => setIsSafetyTimeoutSettingsOpen(true), label: '충격 SOS 대기 설정', icon: Clock, permission: 'admin', color: 'text-rose-400', bgColor: 'bg-rose-500/20', requiresCEO: true },
+      { to: '/admin/statutory-training', label: '법정 정기교육 관리', icon: ShieldCheck, permissions: ['training_mgmt', 'statutory_training_mgmt'], color: 'text-emerald-400', bgColor: 'bg-emerald-500/20' },
       { to: '/training-mgmt', label: '교육/평가 관리', icon: HardHat, permission: 'training_mgmt', color: 'text-yellow-400', bgColor: 'bg-yellow-500/20' },
-      { to: '/safety-score', label: '안전지수 설정', icon: ShieldCheck, permission: 'safety_score_admin', color: 'text-emerald-400', bgColor: 'bg-emerald-500/20' },
+      { to: '/safety-score', label: '안전지수 설정', icon: ShieldCheck, permission: 'safety_score_admin', color: 'text-emerald-400', bgColor: 'bg-emerald-500/20', requiresCEO: true },
     ],
     system: [
       { to: '/admin/pc-dashboard', label: 'PC 대시보드', icon: LayoutDashboard, permission: 'admin', newTab: true, color: 'text-slate-300', bgColor: 'bg-slate-500/30' },
       { to: '/notifications', label: '공지사항 관리', icon: Megaphone, permission: 'notice_mgmt', color: 'text-purple-400', bgColor: 'bg-purple-500/20' },
       { onClick: () => setIsBannerSettingsOpen(true), label: '배너 문구 설정', icon: Megaphone, permission: 'admin', color: 'text-violet-400', bgColor: 'bg-violet-500/20' },
       { to: '/coupons', label: '포상/룰렛 관리', icon: Trophy, permission: 'praise_coupon', color: 'text-amber-400', bgColor: 'bg-amber-500/20' },
-      { onClick: () => setIsShipRaceSettingsOpen(true), label: '조선소 레이싱 확률 설정', icon: Radio, permission: 'admin', color: 'text-orange-400', bgColor: 'bg-orange-500/20' },
-      { onClick: () => setIsSnailRaceSettingsOpen(true), label: '달팽이 레이스 확률 설정', icon: Radio, permission: 'admin', color: 'text-emerald-400', bgColor: 'bg-emerald-500/20' },
-      { onClick: () => setIsFishingSettingsOpen(true), label: '건명 낚시 확률 설정', icon: Anchor, permission: 'admin', color: 'text-cyan-400', bgColor: 'bg-cyan-500/20' },
-      { onClick: () => setIsRouletteSettingsOpen(true), label: '건명 룰렛 확률 설정', icon: Target, permission: 'admin', color: 'text-rose-400', bgColor: 'bg-rose-500/20' },
-      { onClick: () => setIsSafetySensorSettingsOpen(true), label: '충격 감지 감도 설정', icon: ShieldAlert, permission: 'admin', color: 'text-red-400', bgColor: 'bg-red-500/20' },
-      { onClick: () => setIsShipSettingsOpen(true), label: '함선 파츠 확률', icon: Ship, permission: 'admin', color: 'text-blue-300', bgColor: 'bg-blue-500/20' },
-      { onClick: () => setIsPermissionSettingsOpen(true), label: '사용자 권한 관리', icon: ShieldCheck, permission: 'admin', color: 'text-slate-300', bgColor: 'bg-slate-500/20' },
+      { onClick: () => setIsShipRaceSettingsOpen(true), label: '조선소 레이싱 확률 설정', icon: Radio, permission: 'admin', color: 'text-orange-400', bgColor: 'bg-orange-500/20', requiresCEO: true },
+      { onClick: () => setIsSnailRaceSettingsOpen(true), label: '달팽이 레이스 확률 설정', icon: Radio, permission: 'admin', color: 'text-emerald-400', bgColor: 'bg-emerald-500/20', requiresCEO: true },
+      { onClick: () => setIsFishingSettingsOpen(true), label: '건명 낚시 확률 설정', icon: Anchor, permission: 'admin', color: 'text-cyan-400', bgColor: 'bg-cyan-500/20', requiresCEO: true },
+      { onClick: () => setIsRouletteSettingsOpen(true), label: '건명 룰렛 확률 설정', icon: Target, permission: 'admin', color: 'text-rose-400', bgColor: 'bg-rose-500/20', requiresCEO: true },
+      { onClick: () => setIsSafetySensorSettingsOpen(true), label: '충격 감지 감도 설정', icon: ShieldAlert, permission: 'admin', color: 'text-red-400', bgColor: 'bg-red-500/20', requiresCEO: true },
+      { onClick: () => setIsShipSettingsOpen(true), label: '함선 파츠 확률', icon: Ship, permission: 'admin', color: 'text-blue-300', bgColor: 'bg-blue-500/20', requiresCEO: true },
+      { onClick: () => setIsPermissionSettingsOpen(true), label: '사용자 권한 관리', icon: ShieldCheck, permission: 'admin', color: 'text-slate-300', bgColor: 'bg-slate-500/20', requiresCEO: true },
+      { onClick: () => setIsDBResetOpen(true), label: '실운영 데이터 일괄 초기화', icon: AlertTriangle, permission: 'admin', color: 'text-rose-500', bgColor: 'bg-rose-500/20', requiresCEO: true },
     ]
   };
 
@@ -302,9 +423,14 @@ export const Admin: React.FC = () => {
       }
     }
 
+    if (link.requiresCEO && profile?.role !== 'CEO') {
+      return null;
+    }
+
     const isAllowed = isAdminMode || 
       (link.roles && profile && link.roles.includes(profile.role)) ||
-      (link.permission && profile && profile.permissions?.includes(link.permission));
+      (link.permission && profile && profile.permissions?.includes(link.permission)) ||
+      (link.permissions && profile && link.permissions.some((p: string) => profile.permissions?.includes(p)));
 
     if (!isAllowed) return null;
 
@@ -410,13 +536,13 @@ export const Admin: React.FC = () => {
                     key={level}
                     onClick={() => {
                       const thresholds = [
-                        { impact: 35.0, fall: 3.5, duration: 120, sos: 15 }, 
-                        { impact: 65.0, fall: 3.0, duration: 180, sos: 15 }, 
-                        { impact: 95.0, fall: 2.5, duration: 250, sos: 15 }, 
-                        { impact: 135.0, fall: 2.2, duration: 300, sos: 15 }, 
-                        { impact: 185.0, fall: 2.0, duration: 350, sos: 15 },
-                        { impact: 245.0, fall: 1.8, duration: 400, sos: 15 },
-                        { impact: 315.0, fall: 1.6, duration: 450, sos: 15 },
+                        { impact: 22.0, fall: 3.5, duration: 120, sos: 15 }, 
+                        { impact: 38.0, fall: 3.0, duration: 180, sos: 15 }, 
+                        { impact: 58.0, fall: 2.5, duration: 250, sos: 15 }, 
+                        { impact: 85.0, fall: 2.2, duration: 300, sos: 15 }, 
+                        { impact: 130.0, fall: 2.0, duration: 350, sos: 15 },
+                        { impact: 190.0, fall: 1.8, duration: 400, sos: 15 },
+                        { impact: 280.0, fall: 1.6, duration: 450, sos: 15 },
                         { impact: 400.0, fall: 1.5, duration: 500, sos: 15 }
                       ];
                       const selected = thresholds[level - 1];
@@ -1058,6 +1184,96 @@ export const Admin: React.FC = () => {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={isDBResetOpen} onOpenChange={setIsDBResetOpen}>
+        <DialogContent className="bg-card border border-border rounded-[32px] text-foreground max-w-sm w-[95%] p-6 overflow-hidden flex flex-col shadow-2xl max-h-[85vh]">
+          <DialogHeader className="space-y-3 shrink-0">
+            <DialogTitle className="font-neutral text-xl text-rose-500 tracking-tight flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-rose-500 shrink-0" />
+              실운영 대비 데이터 초기화
+            </DialogTitle>
+            <DialogDescription className="text-xs font-semibold text-muted-foreground leading-relaxed">
+              사원 정보 및 조직도를 제외한 모든 테스트용 트랜잭션 데이터를 공장 초기화합니다. 이 작업은 취소할 수 없습니다.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto space-y-4 py-4 my-2 pr-1 border-y border-border text-xs scrollbar-thin">
+            <div>
+              <p className="font-extrabold text-rose-500 uppercase tracking-wider mb-2">삭제 대상 목록 (완전 삭제)</p>
+              <ul className="grid grid-cols-2 gap-1.5 text-[11px] text-foreground/80 font-bold">
+                <li className="flex items-center gap-1">❌ 근무시간 / 출퇴근 기록</li>
+                <li className="flex items-center gap-1">❌ 칭찬쿠폰 지급내역</li>
+                <li className="flex items-center gap-1">❌ 칭찬 릴레이 피드 / 댓글</li>
+                <li className="flex items-center gap-1">❌ 안전지수 점수 변동이력</li>
+                <li className="flex items-center gap-1">❌ 일일 작업지시서 / TBM</li>
+                <li className="flex items-center gap-1">❌ 작업일지 (개인/팀)</li>
+                <li className="flex items-center gap-1">❌ 도시락 및 간식 신청내역</li>
+                <li className="flex items-center gap-1">❌ 보건진단 / 이상무 보고</li>
+                <li className="flex items-center gap-1">❌ 센서 충격/낙하 경보이력</li>
+                <li className="flex items-center gap-1">❌ 비상 SOS / 대피 이력</li>
+                <li className="flex items-center gap-1">❌ 교육 퀴즈 / 평가 이력</li>
+                <li className="flex items-center gap-1">❌ 법정교육서명 / 완료증서</li>
+                <li className="flex items-center gap-1">❌ 급여명세서 등록 데이터</li>
+                <li className="flex items-center gap-1">❌ 포인트 교환(현물) 내역</li>
+                <li className="flex items-center gap-1">❌ BLE 비콘 출입 기록</li>
+                <li className="flex items-center gap-1">❌ 보유 조선소 함선 파츠</li>
+                <li className="flex items-center gap-1">❌ 사고즉보 보고내역</li>
+                <li className="flex items-center gap-1">❌ 연차 / 휴가 신청내역</li>
+              </ul>
+            </div>
+
+            <div>
+              <p className="font-extrabold text-emerald-600 uppercase tracking-wider mb-2">보존 대상 (유지)</p>
+              <ul className="grid grid-cols-2 gap-1.5 text-[11px] text-foreground/80 font-bold">
+                <li className="flex items-center gap-1">✅ 등록된 사원 프로필</li>
+                <li className="flex items-center gap-1">✅ 부서 / 직무 / 직급</li>
+                <li className="flex items-center gap-1">✅ 배치 비콘 마스터 기기</li>
+                <li className="flex items-center gap-1">✅ 교육 교안 자료 / 공지사항</li>
+              </ul>
+            </div>
+
+            <div className="p-3 bg-blue-500/5 rounded-2xl border border-blue-500/10">
+              <p className="font-extrabold text-blue-500 uppercase tracking-wider mb-1">사원 수치 일괄 리셋</p>
+              <p className="text-[10px] font-medium text-muted-foreground leading-normal">
+                사원 점수는 <span className="font-black text-blue-600">0 P</span>, 안전지수 점수는 <span className="font-black text-blue-600">100 점</span>으로 초기화됩니다.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-[10px] font-extrabold text-rose-500 uppercase tracking-wider">
+                승인 코드 입력
+              </Label>
+              <Input 
+                placeholder="'초기화 실행'을 정확히 입력해 주세요"
+                value={resetConfirmText}
+                onChange={(e) => setResetConfirmText(e.target.value)}
+                className="bg-muted border border-border h-11 rounded-xl text-foreground font-black text-center text-xs"
+              />
+            </div>
+          </div>
+
+          <div className="flex gap-2 shrink-0 pt-2">
+            <Button 
+              variant="outline" 
+              className="flex-1 h-11 rounded-xl border-border text-foreground text-xs font-black hover:bg-muted"
+              onClick={() => {
+                setIsDBResetOpen(false);
+                setResetConfirmText('');
+              }}
+              disabled={isResetting}
+            >
+              취소
+            </Button>
+            <Button 
+              className="flex-1 h-11 bg-rose-500 hover:bg-rose-600 text-white text-xs font-black rounded-xl shadow-lg shadow-rose-200 transition-all disabled:opacity-50"
+              onClick={handleResetData}
+              disabled={isResetting || resetConfirmText !== '초기화 실행'}
+            >
+              {isResetting ? '초기화 중...' : '초기화 실행'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={isEmergencyOpen} onOpenChange={setIsEmergencyOpen}>
         <DialogContent className="bg-card border border-border rounded-3xl text-foreground max-w-lg p-0 overflow-hidden flex flex-col max-h-[90vh] shadow-2xl">
           <div className="p-8 pb-4">
@@ -1162,6 +1378,28 @@ export const Admin: React.FC = () => {
                             confirmedCount: evacuationCheckins.length
                           }, { merge: true });
                         }
+
+                        // Auto-resolve pending FIRE critical incidents to keep dashboard clear
+                        try {
+                          const fireQuery = query(
+                            collection(db, 'criticalIncidents'),
+                            where('type', '==', 'FIRE'),
+                            where('status', '==', 'PENDING')
+                          );
+                          const fireSnap = await getDocs(fireQuery);
+                          for (const fireDoc of fireSnap.docs) {
+                            await updateDoc(doc(db, 'criticalIncidents', fireDoc.id), {
+                              status: 'RESOLVED',
+                              resolvedAt: now,
+                              resolvedByUid: profile?.uid || 'admin',
+                              resolvedByName: profile?.displayName || '관리자',
+                              resolutionText: '대피령 일괄 해제 / 상황 종료됨'
+                            });
+                          }
+                        } catch (err) {
+                          console.error("Failed to clear pending fire incidents:", err);
+                        }
+
                         toast.success('대피 상황이 종료되었습니다.');
                       }
                     }}
@@ -1225,6 +1463,20 @@ export const Admin: React.FC = () => {
                       ...evData,
                       status: 'ACTIVE'
                     });
+
+                    // Add FIRE alert to criticalIncidents
+                    await addDoc(collection(db, 'criticalIncidents'), {
+                      type: 'FIRE',
+                      typeName: '화재 대피령',
+                      uid: profile?.uid || 'admin',
+                      displayName: profile?.displayName || '관리자',
+                      employeeId: profile?.employeeId || '',
+                      departmentName: profile?.departmentName || '안전관리실',
+                      jobRole: profile?.jobRole || '관리단',
+                      workplace: reason || '전체 구역',
+                      status: 'PENDING',
+                      createdAt: now
+                    });
                     
                     toast.error('비상 대피령이 발동되었습니다!');
                   }}
@@ -1234,6 +1486,141 @@ export const Admin: React.FC = () => {
               </div>
             )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 긴급 이력 및 안전 조치 이력 조회 Dialog */}
+      <Dialog open={isIncidentHistoryOpen} onOpenChange={setIsIncidentHistoryOpen}>
+        <DialogContent className="bg-card border border-border text-foreground max-w-lg w-[95vw] rounded-[2rem] p-6 shadow-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader className="mb-4">
+            <DialogTitle className="font-extrabold text-lg flex items-center gap-2 text-foreground">
+              <BookOpen className="w-5 h-5 text-amber-500" />
+              긴급 이상 및 안전 조치 이력
+            </DialogTitle>
+            <DialogDescription className="text-xs font-semibold text-muted-foreground">
+              안전 센서 및 비상 리포트 조치 완료 이력을 조회합니다.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 mb-4">
+            <div className="flex flex-wrap gap-1.5">
+              {['ALL', 'FALL', 'IMPACT', 'SOS', 'FIRE', 'HEALTH_BAD'].map((type) => {
+                const labelMap: Record<string, string> = {
+                  ALL: '전체',
+                  FALL: '추락',
+                  IMPACT: '충격',
+                  SOS: 'SOS',
+                  FIRE: '화재 대피',
+                  HEALTH_BAD: '컨디션 나쁨'
+                };
+                return (
+                  <button
+                    key={type}
+                    onClick={() => setHistoryTypeFilter(type)}
+                    className={`px-3 py-1.5 rounded-full text-[10px] font-black transition-all border ${
+                      historyTypeFilter === type 
+                        ? 'bg-amber-500/10 text-amber-500 border-amber-500/40' 
+                        : 'bg-muted text-muted-foreground border-border hover:bg-muted/80'
+                    }`}
+                  >
+                    {labelMap[type]}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="relative">
+              <Search className="absolute left-3.5 top-3 w-4 h-4 text-muted-foreground/50" />
+              <input
+                type="text"
+                value={historySearchTerm}
+                onChange={(e) => setHistorySearchTerm(e.target.value)}
+                placeholder="대상자 이름 또는 사번 검색..."
+                className="w-full h-10 pl-9 pr-4 bg-muted/60 border border-border rounded-xl text-xs text-foreground placeholder:text-muted-foreground/45 outline-none focus:border-amber-500/50"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-3 max-h-[45vh] overflow-y-auto pr-1">
+            {incidentHistory.filter(inc => {
+              const matchesType = historyTypeFilter === 'ALL' || inc.type === historyTypeFilter;
+              const matchesSearch = !historySearchTerm.trim() || 
+                (inc.displayName && inc.displayName.toLowerCase().includes(historySearchTerm.toLowerCase())) ||
+                (inc.employeeId && inc.employeeId.toLowerCase().includes(historySearchTerm.toLowerCase()));
+              return matchesType && matchesSearch;
+            }).length === 0 ? (
+              <div className="py-12 text-center text-muted-foreground/45 text-xs font-medium font-sans">
+                조치 완료 이력이 없습니다.
+              </div>
+            ) : (
+              incidentHistory.filter(inc => {
+                const matchesType = historyTypeFilter === 'ALL' || inc.type === historyTypeFilter;
+                const matchesSearch = !historySearchTerm.trim() || 
+                  (inc.displayName && inc.displayName.toLowerCase().includes(historySearchTerm.toLowerCase())) ||
+                  (inc.employeeId && inc.employeeId.toLowerCase().includes(historySearchTerm.toLowerCase()));
+                return matchesType && matchesSearch;
+              }).map((inc) => (
+                <div 
+                  key={inc.id}
+                  className="p-4 bg-muted/40 border border-border rounded-2.5xl space-y-3 text-xs font-sans"
+                >
+                  <div className="flex justify-between items-start gap-2">
+                    <span className={`text-[9px] px-2 py-0.5 rounded-full font-black ${
+                      inc.type === 'FALL' ? 'bg-red-500/15 text-red-600 border border-red-500/30' :
+                      inc.type === 'IMPACT' ? 'bg-orange-500/15 text-orange-600 border border-orange-500/30' :
+                      inc.type === 'SOS' ? 'bg-rose-500/15 text-rose-600 border border-rose-500/40' :
+                      inc.type === 'FIRE' ? 'bg-red-600/15 text-red-600 border border-red-600/30' :
+                      'bg-amber-500/15 text-amber-600 border border-amber-500/30'
+                    }`}>
+                      {inc.typeName || inc.type}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground/60 font-semibold font-mono">
+                      {inc.createdAt ? new Date(inc.createdAt).toLocaleString('ko-KR') : '-'}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between font-bold">
+                    <span className="text-foreground">{inc.displayName} ({inc.employeeId || '사번없음'})</span>
+                    <span className="text-muted-foreground/75 text-[10px]">{inc.departmentName} · {inc.jobRole}</span>
+                  </div>
+
+                  {inc.workplace && (
+                    <div className="text-[11px] text-muted-foreground">
+                      위치: <span className="text-foreground font-semibold">{inc.workplace}</span>
+                    </div>
+                  )}
+
+                  <div className="bg-emerald-500/5 border border-emerald-500/20 p-3 rounded-xl space-y-1.5 mt-2">
+                    <div className="flex justify-between items-center text-[10px] font-black text-emerald-600">
+                      <span className="flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        상급자 확인 완료
+                      </span>
+                      <span className="font-mono">
+                        시간: {inc.resolvedAt ? new Date(inc.resolvedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : '-'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] font-extrabold text-foreground leading-relaxed pl-1">
+                      {inc.resolutionText || inc.comment || '이상 없음 확인 및 상황 종료'}
+                    </p>
+                    <div className="text-[9px] text-muted-foreground/75 pl-1 pt-1 flex items-center gap-1 font-sans">
+                      <User className="w-3 h-3 text-muted-foreground/50" />
+                      확인자: {inc.resolvedByName || '시스템 관리자'} ({inc.resolvedByRole || '상급 대처원'})
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          <DialogFooter className="mt-4">
+            <Button 
+              className="w-full h-11 bg-zinc-900 border border-zinc-800 text-foreground text-xs font-black rounded-xl hover:bg-zinc-800"
+              onClick={() => setIsIncidentHistoryOpen(false)}
+            >
+              확인 닫기
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

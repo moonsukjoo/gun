@@ -132,13 +132,39 @@ export const AccidentReport: React.FC = () => {
     }
   };
 
-  const isSafetyManager = profile && (
-    ['SAFETY_MANAGER', 'CEO', 'DIRECTOR', 'GENERAL_MANAGER', 'TEAM_LEADER', 'GENERAL_AFFAIRS'].includes(profile.role) || 
-    profile.permissions?.includes('admin') ||
-    profile.permissions?.includes('accident_mgmt') ||
-    (profile.position && ['팀장', '소장', '총무', '직장', '실장', '안전관리자', '대표'].some(p => profile.position?.includes(p))) ||
-    profile.email === 'tjrwnfjqm1@gmail.com'
-  );
+  const canRegisterAccident = (() => {
+    if (!profile) return false;
+    
+    // 조장 or 사원 are strictly forbidden from writing (even if they have some other role, they can only view)
+    const position = profile.position?.trim() || '';
+    if (['조장', '사원'].some(p => position.includes(p))) {
+      return false;
+    }
+    
+    // Explicitly check for allowed positions in user request:
+    // 팀장, 직장, 서무, 실장, 안전관리자, 총무, 소장, 대표 + 사장, CEO
+    const allowedPositions = ['팀장', '직장', '서무', '실장', '안전관리자', '총무', '소장', '대표', '사장'];
+    if (allowedPositions.some(p => position.includes(p))) {
+      return true;
+    }
+    
+    // Check standard managing roles
+    if (['CEO', 'DIRECTOR', 'GENERAL_MANAGER', 'SAFETY_MANAGER', 'TEAM_LEADER', 'GENERAL_AFFAIRS', 'CLERK'].includes(profile.role)) {
+      return true;
+    }
+    
+    if (profile.permissions?.includes('admin') || profile.permissions?.includes('accident_mgmt')) {
+      return true;
+    }
+    
+    if (profile.email === 'tjrwnfjqm1@gmail.com') {
+      return true;
+    }
+    
+    return false;
+  })();
+
+  const isSafetyManager = canRegisterAccident;
 
   const filteredCases = cases.filter(c => 
     c.title.toLowerCase().includes(searchTerm.toLowerCase()) ||

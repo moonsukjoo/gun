@@ -287,6 +287,46 @@
       },
       "required": ["trainingId", "uid", "score", "isPassed", "completedAt"]
     },
+    "StatutorySession": {
+      "title": "Statutory Session",
+      "description": "Statutory legal/mandatory bi-monthly safety training session",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "year": { "type": "number" },
+        "month": { "type": "number" },
+        "round": { "type": "number" },
+        "category": { "type": "string" },
+        "content": { "type": "string" },
+        "targetDepartment": { "type": "string" },
+        "instructor": { "type": "string" },
+        "location": { "type": "string" },
+        "videoUrl": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "year", "month", "round", "category", "content", "targetDepartment", "instructor", "location", "createdAt"]
+    },
+    "StatutoryCompletion": {
+      "title": "Statutory Completion",
+      "description": "Employee completion and digital signature record for statutory safety training",
+      "type": "object",
+      "properties": {
+        "sessionId": { "type": "string" },
+        "uid": { "type": "string" },
+        "userName": { "type": "string" },
+        "userRole": { "type": "string" },
+        "departmentName": { "type": "string" },
+        "position": { "type": "string" },
+        "category": { "type": "string" },
+        "year": { "type": "number" },
+        "month": { "type": "number" },
+        "round": { "type": "number" },
+        "completedAt": { "type": "string", "format": "date-time" },
+        "signatureUrl": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["sessionId", "uid", "userName", "category", "year", "month", "round", "completedAt", "signatureUrl", "status"]
+    },
     "JobRole": {
       "title": "Job Role",
       "description": "Specific job role definition",
@@ -539,6 +579,81 @@
         "createdByName": { "type": "string" }
       },
       "required": ["teamId", "date", "status", "createdAt", "createdByUid"]
+    },
+    "CriticalIncident": {
+      "title": "Critical Safety Incident",
+      "description": "Report of a critical safety incident such as a fall, heavy impact, manual SOS, fire hazard, or high-risk daily health condition.",
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["FALL", "IMPACT", "SOS", "FIRE", "HEALTH_BAD"] },
+        "typeName": { "type": "string" },
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "employeeId": { "type": "string" },
+        "departmentName": { "type": "string" },
+        "jobRole": { "type": "string" },
+        "workplace": { "type": "string" },
+        "status": { "type": "string", "enum": ["PENDING", "RESOLVED"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "resolvedAt": { "type": "string", "format": "date-time" },
+        "resolvedByUid": { "type": "string" },
+        "resolvedByName": { "type": "string" },
+        "resolvedByRole": { "type": "string" },
+        "resolutionText": { "type": "string" }
+      },
+      "required": ["type", "typeName", "displayName", "status", "createdAt"]
+    },
+    "PerceivedTempLog": {
+      "title": "Perceived Temperature Log",
+      "description": "Daily temperature, humidity, wind measurement, and calculated perceived temperature log with occupational hazard actions taken",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string", "format": "date" },
+        "time": { "type": "string" },
+        "location": { "type": "string" },
+        "ta": { "type": "number", "description": "Air temperature (dry-bulb) in degrees Celsius" },
+        "rh": { "type": "number", "description": "Relative Humidity in percentage" },
+        "windSpeed": { "type": "number", "description": "Wind speed in m/s" },
+        "tw": { "type": "number", "description": "Calculated wet-bulb temperature" },
+        "perceivedTemp": { "type": "number", "description": "Calculated perceived temperature (apparent)" },
+        "riskLevel": { "type": "string", "enum": ["주의", "경고", "위험", "매우위험"] },
+        "actionTaken": { "type": "string" },
+        "notes": { "type": "string" },
+        "writerUid": { "type": "string" },
+        "writerName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["date", "time", "location", "ta", "rh", "tw", "perceivedTemp", "riskLevel", "actionTaken", "writerUid", "writerName", "createdAt"]
+    },
+    "PerceivedTempLocation": {
+      "title": "Perceived Temperature Location Preset",
+      "description": "User custom locations for rapid perceived temperature reporting",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "creatorUid": { "type": "string" }
+      },
+      "required": ["name", "createdAt", "creatorUid"]
+    },
+    "PerceivedTempSignature": {
+      "title": "Perceived Temperature Signature Group",
+      "description": "Monthly sign-off signatures for the perceived temperature log desk",
+      "type": "object",
+      "properties": {
+        "safetyName": { "type": "string" },
+        "safetySign": { "type": "string" },
+        "safetyDate": { "type": "string" },
+        "safetyUid": { "type": "string" },
+        "directorName": { "type": "string" },
+        "directorSign": { "type": "string" },
+        "directorDate": { "type": "string" },
+        "directorUid": { "type": "string" },
+        "ceoName": { "type": "string" },
+        "ceoSign": { "type": "string" },
+        "ceoDate": { "type": "string" },
+        "ceoUid": { "type": "string" }
+      }
     }
   },
   "firestore": {
@@ -614,6 +729,14 @@
       "schema": "TrainingResult",
       "description": "User training/exam results"
     },
+    "/statutorySessions/{sessionId}": {
+      "schema": "StatutorySession",
+      "description": "Bi-monthly statutory safety training sessions"
+    },
+    "/statutoryCompletions/{completionId}": {
+      "schema": "StatutoryCompletion",
+      "description": "Digital signatures and logs for statutory training completions"
+    },
     "/safetyScoreLogs/{logId}": {
       "schema": "SafetyScoreLog",
       "description": "Logs of safety score adjustments"
@@ -657,6 +780,22 @@
     "/payslips/{payslipId}": {
       "schema": "Payslip",
       "description": "Employee monthly payslips"
+    },
+    "/criticalIncidents/{incidentId}": {
+      "schema": "CriticalIncident",
+      "description": "Critical safety alarms and supervisor action logs"
+    },
+    "/perceivedTempLogs/{logId}": {
+      "schema": "PerceivedTempLog",
+      "description": "Daily perceived temperature recording logs"
+    },
+    "/perceivedTempLocations/{locationId}": {
+      "schema": "PerceivedTempLocation",
+      "description": "User custom location presets"
+    },
+    "/perceivedTempSignatures/{sigId}": {
+      "schema": "PerceivedTempSignature",
+      "description": "Monthly signatures for perceived temperature safety records"
     }
   }
 }

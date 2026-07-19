@@ -35,7 +35,10 @@ import {
   FileText,
   Sun,
   Moon,
-  Info
+  Info,
+  Users,
+  Utensils,
+  Sparkles
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
@@ -301,7 +304,7 @@ export const MyPage: React.FC = () => {
     {
       title: '안전 및 업무',
       items: [
-        { label: '작업지시서 작성', icon: ClipboardList, to: '/work-instruction-report', color: 'text-blue-600', bgColor: 'bg-blue-500/10', roles: ['TEAM_LEADER', 'DIRECTOR', 'GENERAL_MANAGER', 'SAFETY_MANAGER', 'CEO'] },
+        { label: '작업지시서 작성', icon: ClipboardList, to: '/work-instruction', color: 'text-blue-600', bgColor: 'bg-blue-500/10', roles: ['TEAM_LEADER', 'DIRECTOR', 'GENERAL_MANAGER', 'SAFETY_MANAGER', 'CEO'] },
         { label: '근태관리', icon: Navigation, to: '/attendance', color: 'text-indigo-600', bgColor: 'bg-indigo-500/10' },
         { label: '안전 보건 교육', icon: BookOpen, to: '/training', color: 'text-emerald-600', bgColor: 'bg-emerald-500/10' },
         { label: '교육 이수증', icon: Trophy, onClick: () => setIsExamHistoryOpen(true), color: 'text-amber-600', bgColor: 'bg-amber-500/10' },
@@ -321,42 +324,55 @@ export const MyPage: React.FC = () => {
       items: [
         { label: '공지사항', icon: Bell, to: '/notices', color: 'text-blue-500', bgColor: 'bg-blue-500/10' },
         { label: '로또 생성기', icon: Ticket, to: '/lotto', color: 'text-amber-500', bgColor: 'bg-amber-500/10' },
-        { label: '엔터놀이터', icon: Trophy, to: '/entertainment', color: 'text-purple-500', bgColor: 'bg-purple-500/10' },
-        { label: '비밀번호 변경', icon: Lock, onClick: () => setIsPinModalOpen(true), color: 'text-slate-500', bgColor: 'bg-slate-500/10' },
+        { label: '엔터놀이', icon: Sparkles, to: '/entertainment', color: 'text-pink-500', bgColor: 'bg-pink-500/10' },
       ]
     }
   ];
 
   const adminMenu = {
-    title: '관리자 전용',
+    title: '관리자 전용 메뉴',
     items: [
-      { label: '작업지시 관리', icon: ClipboardList, to: '/work-instruction-mgmt', color: 'text-primary', bgColor: 'bg-primary/10' },
-      { label: '사용자 권한 관리', icon: Lock, to: '/admin/pc/personnel', color: 'text-rose-600', bgColor: 'bg-rose-500/10' },
-      { label: '통합 대시보드', icon: Activity, to: '/admin/pc-dashboard', color: 'text-indigo-600', bgColor: 'bg-indigo-500/10' },
+      { label: '임직원 정보 관리', icon: Users, to: '/personnel', color: 'text-blue-600', bgColor: 'bg-blue-500/10' },
+      { label: '임직원 근태 현황', icon: Navigation, to: '/attendance-mgmt', color: 'text-indigo-600', bgColor: 'bg-indigo-500/10' },
+      { label: '연차 신청 승인/조회', icon: CalendarDays, to: '/leave-mgmt', color: 'text-purple-600', bgColor: 'bg-purple-500/10' },
+      { label: '포상 및 쿠폰 지급', icon: Wallet, to: '/redemption-mgmt', color: 'text-orange-600', bgColor: 'bg-orange-500/10' },
+      { label: '고소작업 통합 모니터링', icon: Activity, to: '/high-work-monitor', color: 'text-rose-600', bgColor: 'bg-rose-500/10' },
+      { label: '식사·간식 신청 관리', icon: Utensils, to: '/meal-mgmt', color: 'text-orange-500', bgColor: 'bg-orange-500/10' },
+      { label: '안전 보건 교육 관리', icon: BookOpen, to: '/training-mgmt', color: 'text-emerald-500', bgColor: 'bg-emerald-500/10' },
+      { label: '작업지시 관리', icon: ClipboardList, to: '/work-instruction-mgmt', color: 'text-indigo-500', bgColor: 'bg-indigo-500/10' },
+      { label: '고급 관리자 설정', icon: Lock, to: '/admin', color: 'text-rose-500', bgColor: 'bg-rose-500/10' },
     ]
   };
 
   return (
-    <div className="space-y-6 pb-24 px-2">
-      <header className="py-2 flex items-center justify-between font-sans px-2">
-        <div>
-           <p className="text-[9px] font-black text-muted-foreground uppercase tracking-[0.2em] mb-0.5">KM HRM SYSTEM</p>
-           <h2 className="text-2xl font-black tracking-tight text-foreground leading-tight">마이 페이지</h2>
-        </div>
-        <div className="flex items-center gap-2">
-          <button 
-            onClick={toggleTheme}
-            className="w-10 h-10 bg-muted rounded-2xl flex items-center justify-center text-muted-foreground hover:text-amber-500 hover:bg-amber-500/10 transition-all active:scale-90"
-            title={profile?.lightTheme ? "어두운 모드로 변경" : "밝은 모드로 변경"}
-          >
-            {profile?.lightTheme ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
-          </button>
-          <button 
-            onClick={handleLogout}
-            className="w-10 h-10 bg-muted rounded-2xl flex items-center justify-center text-muted-foreground hover:text-rose-500 hover:bg-rose-500/10 transition-all active:scale-90"
-          >
-            <LogOut className="w-5 h-5" />
-          </button>
+    <div className="w-full space-y-7 pb-32 px-4 overflow-x-hidden bg-background">
+      {/* 1. Cohesive Header */}
+      <header className="pt-8 space-y-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse"></span>
+              <p className="text-[10px] font-black tracking-widest text-primary/83 uppercase">KM HRM SYSTEM</p>
+            </div>
+            <h1 className="text-[20px] xs:text-[22px] font-black text-foreground tracking-tight leading-tight">
+              마이 페이지
+            </h1>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button 
+              onClick={toggleTheme}
+              className="w-10 h-10 bg-card border border-border/40 rounded-2xl flex items-center justify-center text-muted-foreground hover:text-amber-500 hover:bg-amber-500/10 hover:border-amber-500/10 transition-all active:scale-90 cursor-pointer"
+              title={profile?.lightTheme ? "어두운 모드로 변경" : "밝은 모드로 변경"}
+            >
+              {profile?.lightTheme ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
+            </button>
+            <button 
+              onClick={handleLogout}
+              className="w-10 h-10 bg-card border border-border/40 rounded-2xl flex items-center justify-center text-muted-foreground hover:text-rose-500 hover:bg-rose-500/10 hover:border-rose-500/10 transition-all active:scale-90 cursor-pointer"
+            >
+              <LogOut className="w-5 h-5" />
+            </button>
+          </div>
         </div>
       </header>
 
@@ -383,85 +399,91 @@ export const MyPage: React.FC = () => {
             <p className="text-[10px] font-bold opacity-60 truncate">{evacuationStatus.reason || '비상 상황 소집령'}</p>
           </div>
           {!hasConfirmed && (
-            <Button size="sm" className="bg-rose-600 text-white rounded-xl h-8 px-4 text-[10px] font-black shrink-0" onClick={() => toast.info('서명해주세요!')}>
+            <Button size="sm" className="bg-rose-600 text-white rounded-xl h-8 px-4 text-[10px] font-black shrink-0 cursor-pointer" onClick={() => toast.info('서명해주세요!')}>
               확인
             </Button>
           )}
         </motion.div>
       )}
 
-      {/* Compact Profile Section */}
-      <div className="flex gap-3">
-        <Card className="flex-[1.5] border-none bg-primary rounded-3xl border border-primary/10 shadow-2xl relative overflow-hidden group">
-          <div className="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full blur-3xl -mr-10 -mt-10 group-hover:bg-white/20 transition-colors" />
+      {/* 2. Compact Profile Section */}
+      <div className="grid grid-cols-5 gap-3.5">
+        <Card className="col-span-3 border border-border/40 bg-card rounded-3xl relative overflow-hidden group shadow-sm">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-full blur-3xl -mr-10 -mt-10 group-hover:bg-primary/10 transition-colors" />
           <CardContent className="p-4 flex flex-col items-center text-center gap-3">
             <div className="relative">
-              <div className="w-16 h-16 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center text-xl font-black text-white shadow-xl rotate-3 group-hover:rotate-0 transition-transform">
+              <div className="w-16 h-16 bg-primary/10 rounded-2xl border border-primary/20 flex items-center justify-center text-xl font-black text-primary shadow-sm rotate-3 group-hover:rotate-0 transition-transform">
                 {profile?.displayName?.charAt(0)}
               </div>
-              <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-emerald-500 rounded-full border-4 border-primary flex items-center justify-center">
+              <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-emerald-500 rounded-full border-4 border-card flex items-center justify-center">
                 <Check className="w-3 h-3 text-white" />
               </div>
             </div>
-              <div className="min-w-0 w-full px-2">
-                <h3 className="text-lg font-black text-white truncate">{profile?.displayName}</h3>
-                <div className="flex flex-col items-center gap-1 mt-1.5">
-                  <Badge variant="outline" className="bg-white/10 border-white/20 text-[9px] font-black px-1.5 py-0 h-5 rounded-md text-white">
-                    {profile?.role === 'CEO' ? '대표' : 
-                     profile?.role === 'DIRECTOR' ? '직장' :
-                     profile?.role === 'GENERAL_MANAGER' ? '부장' :
-                     profile?.role === 'SAFETY_MANAGER' ? '안전관리자' :
-                     profile?.role === 'TEAM_LEADER' ? '팀장' :
-                     profile?.role === 'GROUP_LEADER' ? '조장' :
-                     profile?.role === 'EMPLOYEE' ? '사원' : profile?.role || '사원'}
-                  </Badge>
-                  {profile?.position && profile.role !== 'CEO' && (
-                    <span className="text-[10px] font-bold text-white/70 uppercase tracking-tighter truncate w-full block">
-                      {profile.position.replace('대표이사 사무실', '').trim()}
-                    </span>
-                  )}
-                </div>
+            <div className="min-w-0 w-full px-2">
+              <h3 className="text-base font-black text-foreground truncate">{profile?.displayName}</h3>
+              <div className="flex flex-col items-center gap-1.5 mt-2">
+                <Badge variant="outline" className="bg-primary/5 border-primary/20 text-[9px] font-black px-2 py-0.5 rounded text-primary">
+                  {profile?.role === 'CEO' ? '대표' : 
+                   profile?.role === 'DIRECTOR' ? '직장' :
+                   profile?.role === 'GENERAL_MANAGER' ? '부장' :
+                   profile?.role === 'SAFETY_MANAGER' ? '안전관리자' :
+                   profile?.role === 'TEAM_LEADER' ? '팀장' :
+                   profile?.role === 'GROUP_LEADER' ? '조장' :
+                   profile?.role === 'EMPLOYEE' ? '사원' : profile?.role || '사원'}
+                </Badge>
+                {profile?.position && profile.role !== 'CEO' && (
+                  <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight truncate w-full block">
+                    {profile.position.replace('대표이사 사무실', '').trim()}
+                  </span>
+                )}
               </div>
+            </div>
           </CardContent>
         </Card>
 
-        <div className="flex-1 flex flex-col gap-2">
-          <Card className="flex-1 border border-border bg-card p-3 flex flex-col justify-center items-center gap-1 group shadow-sm">
-             <div className="w-8 h-8 bg-emerald-500/10 rounded-xl flex items-center justify-center text-emerald-500 mb-1 group-hover:scale-110 transition-transform">
-               <Wallet className="w-4 h-4" />
+        <div className="col-span-2 flex flex-col gap-3">
+          <Card className="flex-1 border border-border/40 bg-card p-3.5 flex flex-col justify-center items-center gap-1.5 group shadow-sm rounded-3xl">
+             <div className="w-9 h-9 bg-emerald-500/10 border border-emerald-500/10 rounded-xl flex items-center justify-center text-emerald-500 group-hover:scale-105 transition-transform shrink-0">
+               <Wallet className="w-4.5 h-4.5" />
              </div>
-             <p className="text-sm font-black text-foreground">{(profile?.points || 0).toLocaleString()}</p>
-             <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">포인트</p>
+             <div className="text-center">
+               <p className="text-sm font-black text-foreground">{(profile?.points || 0).toLocaleString()}</p>
+               <p className="text-[9px] font-black text-muted-foreground uppercase tracking-wider">포인트</p>
+             </div>
           </Card>
-          <Card className="flex-1 border border-border bg-card p-3 flex flex-col justify-center items-center gap-1 group shadow-sm">
-             <div className="w-8 h-8 bg-blue-500/10 rounded-xl flex items-center justify-center text-blue-500 mb-1 group-hover:scale-110 transition-transform">
-               <CalendarDays className="w-4 h-4" />
+          <Card className="flex-1 border border-border/40 bg-card p-3.5 flex flex-col justify-center items-center gap-1.5 group shadow-sm rounded-3xl">
+             <div className="w-9 h-9 bg-blue-500/10 border border-blue-500/10 rounded-xl flex items-center justify-center text-blue-500 group-hover:scale-105 transition-transform shrink-0">
+               <CalendarDays className="w-4.5 h-4.5" />
              </div>
-             <p className="text-sm font-black text-foreground">{profile?.annualLeaveBalance || 0}일</p>
-             <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">연차</p>
+             <div className="text-center">
+               <p className="text-sm font-black text-foreground">{profile?.annualLeaveBalance || 0}일</p>
+               <p className="text-[9px] font-black text-muted-foreground uppercase tracking-wider">연차잔여</p>
+             </div>
           </Card>
         </div>
       </div>
 
-      {/* Reorganized Categorized Menu */}
-      <div className="space-y-8 mt-4">
+      {/* 3. Reorganized Categorized Menu */}
+      <div className="space-y-6">
         {categories.map((category, idx) => (
-          <div key={idx} className="space-y-4">
-            <h4 className="text-[11px] font-black text-muted-foreground/60 uppercase tracking-[0.2em] px-2 flex items-center gap-2">
-              <span className="w-1 h-1 bg-primary rounded-full"></span>
-              {category.title}
-            </h4>
-            <div className="grid grid-cols-2 gap-2">
+          <div key={idx} className="space-y-3.5">
+            <div className="flex items-center gap-2 px-1">
+              <span className="w-1.5 h-1.5 bg-primary rounded-full"></span>
+              <h4 className="text-[11px] font-black text-muted-foreground/60 uppercase tracking-[0.2em]">
+                {category.title}
+              </h4>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
               {category.items.filter(item => !item.roles || item.roles.includes(profile?.role)).map((item, i) => (
                 <button 
                   key={i} 
                   onClick={() => item.onClick ? item.onClick() : navigate(item.to!)}
-                  className="flex items-center gap-3 p-3 bg-card border border-border rounded-2xl text-left hover:bg-muted transition-all active:scale-95 shadow-sm group"
+                  className="flex items-center gap-3.5 p-3.5 bg-card border border-border/40 rounded-2xl text-left hover:bg-muted active:scale-95 shadow-sm group cursor-pointer"
                 >
-                  <div className={cn("w-9 h-9 rounded-xl flex items-center justify-center shadow-inner group-hover:scale-110 transition-transform shrink-0", item.bgColor)}>
-                    <item.icon className={cn("w-4 h-5", item.color)} />
+                  <div className={cn("w-9 h-9 border rounded-xl flex items-center justify-center shadow-inner group-hover:scale-105 transition-all shrink-0", item.bgColor, "border-border/5")}>
+                    <item.icon className={cn("w-4 h-4", item.color)} />
                   </div>
-                  <span className="text-[11px] font-black text-foreground leading-tight">{item.label}</span>
+                  <span className="text-[11px] font-black text-foreground tracking-tight leading-tight">{item.label}</span>
                 </button>
               ))}
             </div>
@@ -470,23 +492,25 @@ export const MyPage: React.FC = () => {
 
         {/* Admin Menu Section */}
         {profile && ['CEO', 'DIRECTOR', 'GENERAL_MANAGER', 'SAFETY_MANAGER', 'TEAM_LEADER', 'GENERAL_AFFAIRS'].includes(profile.role) && (
-          <div className="space-y-4 bg-muted/30 p-4 rounded-[2rem] border border-border/50">
-            <h4 className="text-[11px] font-black text-rose-500/80 uppercase tracking-[0.2em] px-2 flex items-center gap-2">
-              <Lock className="w-3 h-3" />
-              {adminMenu.title}
-            </h4>
-            <div className="grid grid-cols-1 gap-2">
+          <div className="space-y-4 bg-muted/40 p-4 rounded-3xl border border-border/30">
+            <div className="flex items-center gap-2 px-1">
+              <Lock className="w-3.5 h-3.5 text-rose-500" />
+              <h4 className="text-[11px] font-black text-rose-500 uppercase tracking-[0.2em]">
+                {adminMenu.title}
+              </h4>
+            </div>
+            <div className="grid grid-cols-1 gap-2.5">
               {adminMenu.items.map((item, i) => (
                 <button 
                   key={i} 
                   onClick={() => navigate(item.to!)}
-                  className="flex items-center justify-between p-4 bg-card border border-border rounded-2xl text-left hover:bg-muted transition-all active:scale-98 shadow-sm group"
+                  className="flex items-center justify-between p-4 bg-card border border-border/40 rounded-2xl text-left hover:bg-muted transition-all active:scale-98 shadow-sm group cursor-pointer"
                 >
                   <div className="flex items-center gap-4">
-                    <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center shadow-inner", item.bgColor)}>
+                    <div className={cn("w-10 h-10 border rounded-xl flex items-center justify-center shadow-inner", item.bgColor, "border-border/5")}>
                       <item.icon className={cn("w-5 h-5", item.color)} />
                     </div>
-                    <span className="text-sm font-black text-foreground">{item.label}</span>
+                    <span className="text-[12px] font-black text-foreground">{item.label}</span>
                   </div>
                   <ChevronRight className="w-4 h-4 text-muted-foreground/30 group-hover:translate-x-1 transition-transform" />
                 </button>
@@ -496,81 +520,86 @@ export const MyPage: React.FC = () => {
         )}
       </div>
 
-      {/* System Settings - Fixed Bottom Grid */}
+      {/* 4. System Settings - Compact Grid */}
       <div className="pt-4 space-y-4">
-        <h4 className="text-[10px] font-black text-muted-foreground/80 uppercase tracking-[0.2em] px-1">기기 및 시스템 제어</h4>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="flex items-center gap-2 px-1">
+          <span className="w-1.5 h-1.5 bg-primary rounded-full"></span>
+          <h4 className="text-[11px] font-black text-muted-foreground/60 uppercase tracking-[0.2em]">
+            기기 및 시스템 제어
+          </h4>
+        </div>
+        <div className="grid grid-cols-2 gap-3 pb-4">
           <button 
             onClick={toggleElderlyMode}
             className={cn(
-              "p-4 md:p-5 rounded-[2.5rem] border transition-all flex flex-col items-center gap-2 group",
-              profile?.elderlyMode ? "bg-blue-600/20 border-blue-500/30 shadow-lg" : "bg-card border-border"
+              "p-4 rounded-2xl border transition-all flex flex-col items-center gap-2 group cursor-pointer",
+              profile?.elderlyMode ? "bg-blue-600/10 border-blue-500/30 shadow-sm shadow-blue-500/5 animate-pulse" : "bg-card border-border/40 hover:bg-muted"
             )}
           >
-            <div className={cn("w-10 h-10 rounded-2xl flex items-center justify-center transition-transform group-hover:scale-110", profile?.elderlyMode ? "bg-blue-500 text-white" : "bg-muted text-muted-foreground")}>
-              <Eye className="w-5 h-5" />
+            <div className={cn("w-9 h-9 border rounded-xl flex items-center justify-center transition-transform group-hover:scale-105 shrink-0", profile?.elderlyMode ? "bg-blue-500 text-white border-blue-500" : "bg-muted text-muted-foreground border-border/5")}>
+              <Eye className="w-4 h-4" />
             </div>
             <div className="text-center">
               <p className="text-[11px] font-black text-foreground">어르신 모드</p>
-              <p className={cn("text-[8px] font-black uppercase tracking-widest", profile?.elderlyMode ? "text-blue-400" : "text-muted-foreground/80")}>{profile?.elderlyMode ? '운영 중' : '중지됨'}</p>
+              <p className={cn("text-[8px] font-black uppercase tracking-widest mt-0.5", profile?.elderlyMode ? "text-blue-400" : "text-muted-foreground/80")}>{profile?.elderlyMode ? '운영 중' : '중지됨'}</p>
             </div>
           </button>
 
           <button 
             onClick={handleRequestPermission}
             className={cn(
-              "p-5 rounded-[2.5rem] border transition-all flex flex-col items-center gap-2 group",
-              notificationPermission === 'granted' ? "bg-emerald-600/20 border-emerald-500/30 shadow-lg shadow-emerald-500/10" : "bg-card border-border shadow-inner"
+              "p-4 rounded-2xl border transition-all flex flex-col items-center gap-2 group cursor-pointer",
+              notificationPermission === 'granted' ? "bg-emerald-600/10 border-emerald-500/30 shadow-sm shadow-emerald-500/5" : "bg-card border-border/40 hover:bg-muted shadow-inner"
             )}
           >
-            <div className={cn("w-10 h-10 rounded-2xl flex items-center justify-center transition-transform group-hover:scale-110", notificationPermission === 'granted' ? "bg-emerald-500 text-white" : "bg-muted text-muted-foreground")}>
-              <Bell className="w-5 h-5" />
+            <div className={cn("w-9 h-9 border rounded-xl flex items-center justify-center transition-transform group-hover:scale-105 shrink-0", notificationPermission === 'granted' ? "bg-emerald-500 text-white border-emerald-500" : "bg-muted text-muted-foreground border-border/5")}>
+              <Bell className="w-4 h-4" />
             </div>
             <div className="text-center">
               <p className="text-[11px] font-black text-foreground">기기 알림</p>
-              <p className={cn("text-[8px] font-black uppercase tracking-widest", notificationPermission === 'granted' ? "text-emerald-400" : "text-muted-foreground/80")}>{notificationPermission === 'granted' ? '허용됨' : '차단됨'}</p>
+              <p className={cn("text-[8px] font-black uppercase tracking-widest mt-0.5", notificationPermission === 'granted' ? "text-emerald-400" : "text-muted-foreground/80")}>{notificationPermission === 'granted' ? '허용됨' : '차단됨'}</p>
             </div>
           </button>
 
           <button 
             onClick={handleToggleGhostGuard}
             className={cn(
-              "p-5 rounded-[2.5rem] border transition-all flex flex-col items-center gap-2 group",
-              profile?.ghostGuardEnabled ? "bg-rose-600/20 border-rose-500/30 shadow-lg shadow-rose-500/10" : "bg-card border-border shadow-inner"
+              "p-4 rounded-2xl border transition-all flex flex-col items-center gap-2 group cursor-pointer",
+              profile?.ghostGuardEnabled ? "bg-rose-600/10 border-rose-500/30 shadow-sm shadow-rose-500/5" : "bg-card border-border/40 hover:bg-muted shadow-inner"
             )}
           >
-            <div className={cn("w-10 h-10 rounded-2xl flex items-center justify-center transition-transform group-hover:scale-110", profile?.ghostGuardEnabled ? "bg-rose-500 text-white" : "bg-muted text-muted-foreground")}>
-              <Activity className="w-5 h-5" />
+            <div className={cn("w-9 h-9 border rounded-xl flex items-center justify-center transition-transform group-hover:scale-105 shrink-0", profile?.ghostGuardEnabled ? "bg-rose-500 text-white border-rose-500" : "bg-muted text-muted-foreground border-border/5")}>
+              <Activity className="w-4 h-4" />
             </div>
             <div className="text-center">
               <p className="text-[11px] font-black text-foreground">유령 가드</p>
-              <p className={cn("text-[8px] font-black uppercase tracking-widest", profile?.ghostGuardEnabled ? "text-rose-400" : "text-muted-foreground/80")}>{profile?.ghostGuardEnabled ? '작동 중' : '비활성'}</p>
+              <p className={cn("text-[8px] font-black uppercase tracking-widest mt-0.5", profile?.ghostGuardEnabled ? "text-rose-400" : "text-muted-foreground/80")}>{profile?.ghostGuardEnabled ? '작동 중' : '비활성'}</p>
             </div>
           </button>
 
           <button 
             onClick={handleCalibrateAltitude}
-            className="p-5 rounded-[2.5rem] border bg-card border-border transition-all flex flex-col items-center gap-2 group shadow-inner"
+            className="p-4 rounded-2xl border bg-card border-border/40 transition-all flex flex-col items-center gap-2 group hover:bg-muted shadow-inner cursor-pointer"
           >
-            <div className="w-10 h-10 rounded-2xl bg-muted flex items-center justify-center text-muted-foreground transition-transform group-hover:scale-110">
-              <Navigation className="w-5 h-5" />
+            <div className="w-9 h-9 border rounded-xl bg-muted border-border/5 flex items-center justify-center text-muted-foreground transition-transform group-hover:scale-105 shrink-0">
+              <Navigation className="w-4 h-4" />
             </div>
             <div className="text-center">
               <p className="text-[11px] font-black text-foreground">고도 영점</p>
-              <p className="text-[10px] font-black text-primary uppercase tracking-widest bg-primary/10 px-2 py-0.5 rounded-full mt-1">{(profile?.currentAltitude || 0).toFixed(1)}M 기준</p>
+              <p className="text-[8px] font-black text-primary uppercase tracking-widest bg-primary/10 px-1.5 py-0.5 rounded-full mt-1.5 font-mono">{(profile?.currentAltitude || 0).toFixed(1)}M 기준</p>
             </div>
           </button>
         </div>
 
         {/* Altitude Sensor Info Card */}
-        <Card className="bg-primary/5 border border-primary/20 rounded-3xl p-4 mt-2">
+        <Card className="bg-primary/[0.04] border border-primary/15 rounded-3xl p-4 mt-2 shadow-sm">
           <div className="flex gap-3">
-            <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center text-primary shrink-0">
-              <Info className="w-4 h-4" />
+            <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center text-primary shrink-0 shadow-inner">
+              <Info className="w-4.5 h-4.5" />
             </div>
             <div className="space-y-1">
-              <h5 className="text-xs font-black text-foreground">기압계 센서 안내</h5>
-              <p className="text-[10px] font-bold text-muted-foreground leading-normal">
+              <h5 className="text-[11px] font-black text-foreground">기압계 센서 안내</h5>
+              <p className="text-[10px] font-medium text-muted-foreground leading-relaxed">
                 고소작업 모니터링은 기압계 센서를 사용합니다. 아이폰(iOS)은 [설정 {'>'} Safari {'>'} 동작 및 방향 접근]을 활성화해야 하며, 안드로이드는 브라우저 센서 권한이 필요합니다. 센서가 없는 기기는 고도 측정이 불가능합니다.
               </p>
             </div>

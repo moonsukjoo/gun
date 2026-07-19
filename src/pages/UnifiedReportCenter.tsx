@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
 import { 
@@ -32,8 +33,9 @@ import { format, subDays, startOfMonth, endOfMonth } from 'date-fns';
 import { exportToExcel, exportToPDF } from '../lib/exportUtils';
 import { cn } from '@/lib/utils';
 import { motion } from 'motion/react';
+import PCAdminLayout from '../components/PCAdminLayout';
 
-type ReportType = 'EMPLOYEES' | 'ATTENDANCE' | 'TRAINING' | 'LEAVE' | 'ACCIDENTS' | 'HEALTH' | 'EVACUATION' | 'REDEMPTION' | 'WORK_LOGS' | 'LUNCH' | 'SNACK';
+type ReportType = 'EMPLOYEES' | 'ATTENDANCE' | 'TRAINING' | 'STATUTORY_TRAINING' | 'LEAVE' | 'ACCIDENTS' | 'HEALTH' | 'EVACUATION' | 'REDEMPTION' | 'WORK_LOGS' | 'WORK_INSTRUCTIONS' | 'LUNCH' | 'SNACK';
 
 const UnifiedReportCenter: React.FC = () => {
   const [reportType, setReportType] = useState<ReportType>('ATTENDANCE');
@@ -74,6 +76,10 @@ const UnifiedReportCenter: React.FC = () => {
           collectionName = 'trainingResults';
           title = '교육 이수 현황';
           break;
+        case 'STATUTORY_TRAINING':
+          collectionName = 'statutoryCompletions';
+          title = '법정 정기안전교육 서명대장 보고서';
+          break;
         case 'LEAVE':
           collectionName = 'leaveRequests';
           title = '연차/휴가 사용 내역';
@@ -97,6 +103,10 @@ const UnifiedReportCenter: React.FC = () => {
         case 'WORK_LOGS':
           collectionName = 'personalWorkLogs';
           title = '전 사원 작업일지 현황';
+          break;
+        case 'WORK_INSTRUCTIONS':
+          collectionName = 'workInstructionReports';
+          title = '작업지시 및 점검일지 보고서';
           break;
         case 'LUNCH':
           collectionName = 'lunchRequests';
@@ -172,8 +182,15 @@ const UnifiedReportCenter: React.FC = () => {
 
       if (targetName) {
         data = data.filter(item => {
-          const name = item.userName || item.displayName || item.authorName || item.activatedByName || item.reportedBy;
-          return name?.toLowerCase().includes(targetName.toLowerCase());
+          const name = item.userName || item.displayName || item.authorName || item.activatedByName || item.reportedBy || item.supervisorName || item.createdByName;
+          let match = name?.toLowerCase().includes(targetName.toLowerCase());
+          
+          if (!match && item.workerInstructions) {
+            match = item.workerInstructions.some((w: any) => 
+              w.workerName?.toLowerCase().includes(targetName.toLowerCase())
+            );
+          }
+          return match;
         });
       }
 
@@ -191,7 +208,7 @@ const UnifiedReportCenter: React.FC = () => {
       }
 
       // Format Data for export
-      const formattedData = formatDataForExport(reportType, data);
+      const formattedData = formatDataForExport(reportType, data, formatType === 'PDF');
 
       if (formatType === 'EXCEL') {
         exportToExcel(formattedData, `${title}_${format(new Date(), 'yyyyMMdd')}`, 'Sheet1');
@@ -211,7 +228,7 @@ const UnifiedReportCenter: React.FC = () => {
     }
   };
 
-  const formatDataForExport = (type: ReportType, rawData: any[]) => {
+  const formatDataForExport = (type: ReportType, rawData: any[], isPdf: boolean = false) => {
     const getName = (d: any) => d.userName || d.displayName || d.reportedBy || d.authorName || d.userName || '미기입';
     const formatDate = (dateStr: any) => {
       if (!dateStr) return '-';
@@ -286,6 +303,17 @@ const UnifiedReportCenter: React.FC = () => {
           '합격여부': d.isPassed ? '합격' : '불합격',
           '완료일': d.completedAt ? format(new Date(d.completedAt), 'yyyy-MM-dd HH:mm') : '-'
         }));
+      case 'STATUTORY_TRAINING':
+        return rawData.map(d => ({
+          '교육기수': `${d.year || ''}년도 ${d.month || ''}월 (회차: ${d.round || '1'}회)`,
+          '교육 카테고리': d.category || '-',
+          '사원 성명': d.userName || d.displayName || '-',
+          '소속 부서': d.departmentName || d.teamName || '-',
+          '직급': d.position || '-',
+          '직책/권한': d.userRole === 'TEAM_LEADER' ? '팀장/조장' : '사원/기공',
+          '이수 완료 시각': d.completedAt ? d.completedAt.replace('T', ' ').substring(0, 16) : '-',
+          '수기 서명 상태': isPdf ? (d.signatureUrl || '') : (d.signatureUrl ? '자필서명득' : '미날인')
+        }));
       case 'LEAVE':
         return rawData.map(d => ({
           '성명': getName(d),
@@ -304,9 +332,53 @@ const UnifiedReportCenter: React.FC = () => {
             '부서': d.departmentName || '-',
             '업무내용': d.tasks?.map((t: any) => t.content).join(', ') || '',
             '총시간': totalLoggedHours,
+            '본인 서명': isPdf ? (d.workerSignUrl || '') : (d.workerSignUrl ? '서명완료' : '미서명'),
+            '승인자(조직장)': d.approvedByLeaderName || d.approvedByFinalName || d.approvedByName || '-',
             '상태': d.status === 'FINAL_APPROVED' ? '최종승인' : d.status === 'LEADER_APPROVED' ? '조직장승인' : '검토중'
           };
         });
+      case 'WORK_INSTRUCTIONS':
+        {
+          const flattened: any[] = [];
+          rawData.forEach(d => {
+            if (d.workerInstructions && d.workerInstructions.length > 0) {
+              d.workerInstructions.forEach((w: any) => {
+                flattened.push({
+                  '날짜': d.date,
+                  '부서(팀명)': d.teamName || '-',
+                  '관리감독자': d.supervisorName || '-',
+                  '감독자 서명': isPdf ? (d.supervisorSignUrl || '') : (d.supervisorSignUrl ? '서명완료' : '미서명'),
+                  '안전책임자': d.safetyManagerName || '김주영',
+                  '책임자 서명': isPdf ? (d.safetyManagerSignUrl || '') : (d.safetyManagerSignUrl ? '서명완료' : '미서명'),
+                  '작업자': w.workerName || '-',
+                  '지시내용': w.instruction || '-',
+                  '건강상태': w.healthStatus || 'NORMAL',
+                  '작업시간': `${w.startTime || ''} ~ ${w.endTime || '--:--'}`,
+                  '작업 전 서명': isPdf ? (w.signBeforeUrl || '') : (w.signBeforeUrl ? '서명완료' : '미서명'),
+                  '작업 후 서명': isPdf ? (w.signAfterUrl || '') : (w.signAfterUrl ? '서명완료' : '미서명'),
+                  'TBM 핵심내용': d.tbmContent || '-'
+                });
+              });
+            } else {
+              flattened.push({
+                '날짜': d.date,
+                '부서(팀명)': d.teamName || '-',
+                '관리감독자': d.supervisorName || '-',
+                '감독자 서명': isPdf ? (d.supervisorSignUrl || '') : (d.supervisorSignUrl ? '서명완료' : '미서명'),
+                '안전책임자': d.safetyManagerName || '김주영',
+                '책임자 서명': isPdf ? (d.safetyManagerSignUrl || '') : (d.safetyManagerSignUrl ? '서명완료' : '미서명'),
+                '작업자': '-',
+                '지시내용': '-',
+                '건강상태': '-',
+                '작업시간': '-',
+                '작업 전 서명': '-',
+                '작업 후 서명': '-',
+                'TBM 핵심내용': d.tbmContent || '-'
+              });
+            }
+          });
+          return flattened;
+        }
       case 'LUNCH':
         return rawData.map(d => ({
           '성명': getName(d),
@@ -354,15 +426,19 @@ const UnifiedReportCenter: React.FC = () => {
     { id: 'HEALTH', label: '매일보건 관리', icon: HeartPulse, color: 'text-rose-500', bg: 'bg-rose-500/10' },
     { id: 'ACCIDENTS', label: '사고/안전 사례', icon: AlertTriangle, color: 'text-amber-500', bg: 'bg-amber-500/10' },
     { id: 'TRAINING', label: '교육 이수 현황', icon: ClipboardList, color: 'text-indigo-500', bg: 'bg-indigo-500/10' },
+    { id: 'STATUTORY_TRAINING', label: '법정 안전이수 대장', icon: ShieldCheck, color: 'text-rose-600', bg: 'bg-rose-500/10' },
     { id: 'LEAVE', label: '연차/휴가 내역', icon: Calendar, color: 'text-pink-500', bg: 'bg-pink-500/10' },
     { id: 'EVACUATION', label: '비상 대피 이력', icon: History, color: 'text-slate-500', bg: 'bg-slate-500/10' },
     { id: 'REDEMPTION', label: '포인트 환전', icon: FileText, color: 'text-violet-500', bg: 'bg-violet-500/10' },
     { id: 'WORK_LOGS', label: '작업일지 관리', icon: ClipboardList, color: 'text-indigo-400', bg: 'bg-indigo-500/10' },
+    { id: 'WORK_INSTRUCTIONS', label: '작업지시서 관리', icon: FileText, color: 'text-sky-500', bg: 'bg-sky-500/10' },
     { id: 'LUNCH', label: '도시락 신청 내역', icon: Utensils, color: 'text-orange-400', bg: 'bg-orange-500/10' },
     { id: 'SNACK', label: '간식 신청 내역', icon: Coffee, color: 'text-pink-400', bg: 'bg-pink-100/10' },
   ];
 
-  return (
+  const location = useLocation();
+  const isPC = location.pathname.startsWith('/admin/pc');
+  const innerContent = (
     <div className="p-2 space-y-6 pb-24">
       {/* Header */}
         <header className="flex flex-col gap-1 px-4 py-6 relative overflow-hidden bg-muted/20 rounded-[2.5rem] border border-border shadow-2xl">
@@ -514,6 +590,18 @@ const UnifiedReportCenter: React.FC = () => {
         </Card>
       </div>
   );
+
+  if (isPC) {
+    return (
+      <PCAdminLayout title="통합 보고서 센터">
+        <div className="max-w-[1600px] mx-auto">
+          {innerContent}
+        </div>
+      </PCAdminLayout>
+    );
+  }
+
+  return innerContent;
 };
 
 export default UnifiedReportCenter;

@@ -34,6 +34,7 @@ import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import * as XLSX from 'xlsx';
+import { exportToExcel } from '@/lib/exportUtils';
 
 export const WorkInstructionManagement: React.FC = () => {
   const { profile } = useAuth();
@@ -87,7 +88,7 @@ export const WorkInstructionManagement: React.FC = () => {
     window.print();
   };
 
-  const exportToExcel = () => {
+  const handleExportExcel = async () => {
     const data = filteredReports.map(r => ({
       '날짜': r.date,
       '팀명': r.teamName,
@@ -97,13 +98,11 @@ export const WorkInstructionManagement: React.FC = () => {
       '상태': r.status === 'APPROVED' ? '최종제출' : '작성중'
     }));
     
-    const ws = XLSX.utils.json_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "작업지시_목록");
     const fileName = searchTerm 
-      ? `작업지시서_${searchTerm}_${format(new Date(), 'yyyyMMdd')}.xlsx`
-      : `작업지시서_전체_${format(new Date(), 'yyyyMMdd')}.xlsx`;
-    XLSX.writeFile(wb, fileName);
+      ? `작업지시서_${searchTerm}`
+      : `작업지시서_전체`;
+    
+    await exportToExcel(data, fileName, "작업지시_목록");
   };
 
   return (
@@ -117,7 +116,7 @@ export const WorkInstructionManagement: React.FC = () => {
           <Button 
             variant="outline" 
             size="sm" 
-            onClick={exportToExcel}
+            onClick={handleExportExcel}
             className="rounded-xl font-black gap-2 border-primary/20 text-primary"
           >
             <Printer className="w-4 h-4" /> 엑셀 다운로드
@@ -232,13 +231,29 @@ export const WorkInstructionManagement: React.FC = () => {
                           <div className="grid grid-cols-2 gap-4 md:gap-8">
                              <div className="space-y-1">
                                 <p className="text-[9px] md:text-[10px] font-bold text-muted-foreground uppercase">관리감독자</p>
-                                <p className="text-base md:text-lg font-black leading-tight">{selectedReport.supervisorName}</p>
-                                <div className="w-8 md:w-12 h-4 md:h-6 border-b border-dashed border-border/50"></div>
+                                <div className="flex items-center gap-2">
+                                  <p className="text-base md:text-lg font-black leading-tight">{selectedReport.supervisorName}</p>
+                                  {selectedReport.supervisorSignUrl ? (
+                                    <div className="h-6 w-16 bg-white/5 rounded overflow-hidden border border-border/30">
+                                      <img src={selectedReport.supervisorSignUrl} className="h-full w-full object-contain mix-blend-multiply dark:mix-blend-normal" alt="supervisor-sign" />
+                                    </div>
+                                  ) : (
+                                    <div className="w-8 md:w-12 h-4 md:h-6 border-b border-dashed border-border/50"></div>
+                                  )}
+                                </div>
                              </div>
                              <div className="space-y-1">
                                 <p className="text-[9px] md:text-[10px] font-bold text-muted-foreground uppercase">안전책임자</p>
-                                <p className="text-base md:text-lg font-black leading-tight text-primary">{selectedReport.safetyManagerName || '김주영'}</p>
-                                <div className="w-8 md:w-12 h-4 md:h-6 border-b border-dashed border-border/50"></div>
+                                <div className="flex items-center gap-2">
+                                  <p className="text-base md:text-lg font-black leading-tight text-primary">{selectedReport.safetyManagerName || '김주영'}</p>
+                                  {selectedReport.safetyManagerSignUrl ? (
+                                    <div className="h-6 w-16 bg-white/5 rounded overflow-hidden border border-border/30">
+                                      <img src={selectedReport.safetyManagerSignUrl} className="h-full w-full object-contain mix-blend-multiply dark:mix-blend-normal" alt="safety-manager-sign" />
+                                    </div>
+                                  ) : (
+                                    <div className="w-8 md:w-12 h-4 md:h-6 border-b border-dashed border-border/50"></div>
+                                  )}
+                                </div>
                              </div>
                           </div>
                        </div>

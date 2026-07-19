@@ -6,6 +6,7 @@ import { collection, query, where, onSnapshot, orderBy, limit } from 'firebase/f
 import { sendPushNotification } from '../services/notificationService';
 import { initializeFCM } from '../services/fcmService';
 import { Notification } from '../types';
+import { AlertSoundPlayer } from '../lib/sound';
 
 import { handleFirestoreError, OperationType } from '../lib/errorHandlers';
 
@@ -38,6 +39,9 @@ export const NotificationHandler: React.FC = () => {
         if (change.type === 'added') {
           const data = change.doc.data() as Notification;
           
+          // Trigger voice notification
+          AlertSoundPlayer.trigger('general', data.title);
+
           // Trigger the visual alert (Foreground OS Notification)
           const isUrgent = data.type === 'EMERGENCY' || data.type === 'URGENT_NOTICE';
           

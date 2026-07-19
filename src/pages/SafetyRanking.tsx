@@ -55,7 +55,7 @@ export const SafetyRanking: React.FC = () => {
   const [reason, setReason] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
-  const isAdmin = profile && (['CEO', 'SAFETY_MANAGER'].includes(profile.role) || profile.permissions?.includes('safety_score_admin'));
+  const isAdmin = profile && (profile.role === 'CEO');
 
   useEffect(() => {
     const unsubscribeUsers = onSnapshot(query(collection(db, 'users')), (snapshot) => {

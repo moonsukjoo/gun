@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from 'sonner';
 import { sendPushNotification } from '../services/notificationService';
+import { CriticalIncidentAlertCenter } from './CriticalIncidentAlertCenter';
 
 import { handleFirestoreError, OperationType } from '../lib/errorHandlers';
 
@@ -42,20 +43,22 @@ const NavItem: React.FC<NavItemProps> = ({ to, icon: Icon, label, active }) => (
   <Link
     to={to}
     className={cn(
-      "flex flex-col items-center justify-center gap-1 flex-1 py-2 transition-all duration-300 relative",
+      "flex flex-col items-center justify-center gap-1.5 flex-1 py-1 transition-all duration-300 relative",
       active ? "text-primary" : "text-muted-foreground hover:text-foreground"
     )}
   >
-    <Icon className={cn("w-5 h-5 transition-all", active && "scale-110")} />
+    <div className={cn(
+      "w-12 h-7 rounded-full transition-all duration-300 flex items-center justify-center",
+      active ? "bg-primary/15 text-primary shadow-[0_2px_8px_rgba(59,130,246,0.12)]" : "bg-transparent"
+    )}>
+      <Icon className={cn("w-4.5 h-4.5 transition-all duration-300", active && "scale-105")} />
+    </div>
     <span className={cn(
-      "text-[10px] font-bold tracking-tight transition-all",
-      active ? "opacity-100" : "opacity-80"
+      "text-[11.5px] font-black tracking-tight transition-all leading-none",
+      active ? "opacity-100 text-primary" : "opacity-70"
     )}>
       {label}
     </span>
-    {active && (
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-1 bg-primary rounded-b-full shadow-[0_0_10px_rgba(45,212,191,0.3)]" />
-    )}
   </Link>
 );
 
@@ -108,6 +111,48 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     return () => unsubscribe();
   }, [profile]);
 
+  const [hasImportantNotice, setHasImportantNotice] = useState(false);
+
+  useEffect(() => {
+    if (!profile) return;
+    const q = query(collection(db, 'notices'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const docs = snapshot.docs.map(doc => doc.data());
+      const hasImportant = docs.some(doc => {
+        const isImportant = doc.isImportant === true || doc.priority === 'high' || doc.priority === 'URGENT';
+        if (!isImportant) return false;
+        
+        let createdAtDate: Date;
+        if (doc.createdAt) {
+          if (typeof doc.createdAt === 'string') {
+            createdAtDate = new Date(doc.createdAt);
+          } else if (doc.createdAt.toDate) {
+            createdAtDate = doc.createdAt.toDate();
+          } else if (doc.createdAt.seconds) {
+            createdAtDate = new Date(doc.createdAt.seconds * 1000);
+          } else {
+            createdAtDate = new Date();
+          }
+        } else {
+          createdAtDate = new Date();
+        }
+        
+        // Is recent (within last 7 days)
+        const isRecent = Date.now() - createdAtDate.getTime() < 7 * 24 * 60 * 60 * 1000;
+        
+        // Is unread (createdAt is newer than lastViewedNoticesTime)
+        const lastViewed = localStorage.getItem('lastViewedNoticesTime');
+        const isUnread = !lastViewed || createdAtDate.getTime() > new Date(lastViewed).getTime() + 1000;
+        
+        return isRecent && isUnread;
+      });
+      setHasImportantNotice(hasImportant);
+    }, (error) => {
+      console.error("Error listening to notices for alert pulse:", error);
+    });
+    return () => unsubscribe();
+  }, [profile, location.pathname]);
+
   const handleLogout = async () => {
     await auth.signOut();
     navigate('/login');
@@ -148,6 +193,20 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         displayName: profile.displayName,
         type,
         location: profile.workplace || '현장',
+        createdAt: new Date().toISOString()
+      });
+
+      // Create critical Incident record for superior check-in
+      await addDoc(collection(db, 'criticalIncidents'), {
+        type: 'SOS',
+        typeName: `비상 SOS (${type})`,
+        uid: profile.uid,
+        displayName: profile.displayName || '이름없음',
+        employeeId: profile.employeeId || '',
+        departmentName: profile.departmentName || '미지정',
+        jobRole: profile.jobRole || '',
+        workplace: profile.workplace || '현장',
+        status: 'PENDING',
         createdAt: new Date().toISOString()
       });
 
@@ -207,55 +266,55 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
   return (
     <div className="flex flex-col h-screen bg-background font-sans text-foreground select-none">
-      <header className="h-16 bg-background/80 backdrop-blur-xl border-b border-foreground/5 flex items-center justify-center flex-shrink-0 sticky top-0 z-50">
-        <div className="w-full px-5 flex items-center justify-between">
+      <header className="h-13 bg-card/85 backdrop-blur-xl border-b border-border/40 flex items-center justify-center flex-shrink-0 sticky top-0 z-50 shadow-sm">
+        <div className="w-full px-4 flex items-center justify-between">
           <div className="flex items-center gap-1">
             {location.pathname !== '/' && (
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={() => navigate(-1)}
-                className="w-10 h-10 -ml-2 text-muted-foreground hover:text-foreground transition-all rounded-xl"
+                className="w-8 h-8 -ml-1 text-muted-foreground hover:text-foreground transition-all rounded-lg"
               >
-                <ChevronLeft className="w-6 h-6" />
+                <ChevronLeft className="w-5 h-5" />
               </Button>
             )}
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center p-1.5 active:scale-95 transition-all">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-md flex items-center justify-center p-1 active:scale-95 transition-all">
                 <CompanyLogo className="w-full h-full" />
               </div>
               <div className="flex flex-col">
-                <span className="font-black text-sm tracking-tight leading-none text-foreground">건명기업</span>
+                <span className="font-extrabold text-xs tracking-tight leading-none text-foreground">건명기업</span>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <Dialog open={isSOSDialogOpen} onOpenChange={setIsSOSDialogOpen}>
               <DialogTrigger 
-                className="w-10 h-10 bg-red-600 rounded-xl flex items-center justify-center text-white active:scale-90 transition-all shadow-lg shadow-red-900/20"
+                className="w-8.5 h-8.5 bg-red-600 rounded-lg flex items-center justify-center text-white active:scale-90 transition-all shadow-md shadow-red-900/15"
               >
-                <ShieldAlert className="w-5 h-5" />
+                <ShieldAlert className="w-4 h-4" />
               </DialogTrigger>
-              <DialogContent className="bg-card border-none rounded-3xl p-0 overflow-hidden max-w-xs">
-                <div className="bg-red-600 p-6 text-center text-white">
-                  <h2 className="text-xl font-black">긴급 상황 전송</h2>
-                  <p className="text-[10px] font-bold text-white/90">유형을 선택하면 관리자에게 즉시 알림이 전송됩니다</p>
+              <DialogContent className="bg-card border-none rounded-2xl p-0 overflow-hidden max-w-[280px]">
+                <div className="bg-red-600 p-5 text-center text-white">
+                  <h2 className="text-lg font-black">긴급 상황 전송</h2>
+                  <p className="text-[9px] font-bold text-white/90 mt-1">유형을 선택하면 관리자에게 즉시 알림이 전송됩니다</p>
                 </div>
-                <div className="p-4 grid grid-cols-2 gap-2">
+                <div className="p-3 grid grid-cols-2 gap-1.5">
                   {['화재', '추락', '협착', '기타'].map(type => (
                     <button 
                       key={type}
                       onClick={() => handleEmergencySOS(type)}
-                      className="h-20 bg-muted rounded-2xl flex flex-col items-center justify-center gap-1 font-black text-xs border border-border active:scale-95 transition-all hover:bg-muted/80"
+                      className="h-16 bg-muted rounded-xl flex flex-col items-center justify-center gap-0.5 font-black text-[11px] border border-border active:scale-95 transition-all hover:bg-muted/80"
                     >
-                      <span className="text-xl mb-1">{type === '화재' ? '🔥' : type === '추락' ? '🧗' : type === '협착' ? '🏗️' : '🆘'}</span>
+                      <span className="text-lg mb-0.5">{type === '화재' ? '🔥' : type === '추락' ? '🧗' : type === '협착' ? '🏗️' : '🆘'}</span>
                       <span className="text-foreground">{type}</span>
                     </button>
                   ))}
                 </div>
-                <div className="p-4 pt-0">
-                  <Button variant="ghost" className="w-full text-muted-foreground font-black text-xs" onClick={() => setIsSOSDialogOpen(false)}>취소</Button>
+                <div className="p-3 pt-0">
+                  <Button variant="ghost" className="w-full text-muted-foreground font-black text-xs h-8" onClick={() => setIsSOSDialogOpen(false)}>취소</Button>
                 </div>
               </DialogContent>
             </Dialog>
@@ -264,14 +323,17 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
               <Button 
                 variant="ghost" 
                 size="icon" 
-                className="w-10 h-10 text-muted-foreground hover:text-foreground transition-all rounded-xl"
+                className={cn(
+                  "w-8.5 h-8.5 text-muted-foreground hover:text-foreground transition-all rounded-lg relative z-10",
+                  hasImportantNotice && location.pathname === '/' && "animate-glow-pulse bg-red-500/15 text-red-500 hover:bg-red-500/25 border border-red-500/30"
+                )}
                 onClick={() => navigate('/notifications')}
               >
-                <Bell className="w-5 h-5" />
+                <Bell className={cn("w-4.5 h-4.5", hasImportantNotice && location.pathname === '/' && "scale-110")} />
               </Button>
               {unreadCount > 0 && (
-                <div className="absolute top-2 right-2 w-3.5 h-3.5 bg-red-500 rounded-full border-2 border-background flex items-center justify-center">
-                  <span className="text-[7px] font-black text-white">{unreadCount > 9 ? '9+' : unreadCount}</span>
+                <div className="absolute top-1.5 right-1.5 w-3 h-3 bg-red-500 rounded-full border border-background flex items-center justify-center z-20">
+                  <span className="text-[6px] font-black text-white">{unreadCount > 9 ? '9+' : unreadCount}</span>
                 </div>
               )}
             </div>
@@ -279,13 +341,18 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto bg-background">
-        <div className="w-full pb-24">
+      <main className="flex-1 overflow-y-auto bg-background relative overflow-x-hidden">
+        {/* Dynamic background glass glowing nodes */}
+        <div className="absolute top-8 left-8 w-64 h-64 rounded-full bg-primary/10 blur-[100px] pointer-events-none" />
+        <div className="absolute top-[40%] -right-16 w-80 h-80 rounded-full bg-indigo-500/8 blur-[120px] pointer-events-none" />
+        <div className="absolute bottom-16 -left-12 w-72 h-72 rounded-full bg-emerald-500/5 blur-[90px] pointer-events-none" />
+        
+        <div className="w-full pb-16 relative z-10 animate-fade-in">
           {children}
         </div>
       </main>
 
-      <nav className="fixed bottom-0 left-0 right-0 h-16 bg-background/80 backdrop-blur-xl border-t border-foreground/5 flex items-center justify-around px-2 pb-safe z-50">
+      <nav className="fixed bottom-0 left-0 right-0 h-14 bg-card/85 backdrop-blur-xl border-t border-border/40 flex items-center justify-around px-4 pb-safe z-50 shadow-[0_-8px_24px_rgba(0,0,0,0.12)]">
         {navItems.map((item) => (
           <NavItem 
             key={item.to} 
@@ -296,6 +363,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           />
         ))}
       </nav>
+      <CriticalIncidentAlertCenter />
     </div>
   );
 };

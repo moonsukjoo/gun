@@ -98,25 +98,25 @@ const PCAdminRedemption: React.FC = () => {
       <div className="max-w-[1400px] mx-auto space-y-8">
         <header className="flex justify-between items-end">
           <div className="space-y-4">
-            <h2 className="text-3xl font-black text-slate-900 tracking-tight">Redemption Requests</h2>
-            <p className="text-slate-500 font-medium">임직원들의 포상 포인트 현물 전환 신청 건을 관리합니다.</p>
+            <h2 className="text-3xl font-black text-foreground tracking-tight">현물 신청 관리</h2>
+            <p className="text-muted-foreground font-medium">임직원들의 포상 포인트 현물 전환 신청 건을 관리합니다.</p>
           </div>
         </header>
 
         {/* Status Tabs */}
-        <div className="flex gap-2 p-1.5 bg-slate-100 rounded-[1.5rem] w-fit">
+        <div className="flex gap-2 p-1.5 bg-muted rounded-[1.5rem] w-fit">
           {[
-            { id: 'pending', label: '승인 대기', count: requests.length, color: 'text-amber-600', bg: 'bg-amber-100' },
-            { id: 'approved', label: '발송/지급 완료', count: 0, color: 'text-emerald-600', bg: 'bg-emerald-100' },
-            { id: 'rejected', label: '반려 내역', count: 0, color: 'text-rose-600', bg: 'bg-rose-100' },
+            { id: 'pending', label: '승인 대기', count: requests.length, color: 'text-amber-500', bg: 'bg-amber-500/10' },
+            { id: 'approved', label: '발송/지급 완료', count: 0, color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
+            { id: 'rejected', label: '반려 내역', count: 0, color: 'text-rose-500', bg: 'bg-rose-500/10' },
           ].map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
               className={`px-8 py-3.5 rounded-2xl text-sm font-black transition-all flex items-center gap-3 ${
                 activeTab === tab.id 
-                ? 'bg-white text-slate-900 shadow-sm' 
-                : 'text-slate-500 hover:text-slate-700'
+                ? 'bg-blue-600 text-white shadow-md' 
+                : 'text-muted-foreground hover:text-foreground'
               }`}
             >
               {tab.label}
@@ -131,43 +131,43 @@ const PCAdminRedemption: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
           {loading ? (
             Array(6).fill(0).map((_, i) => (
-              <div key={i} className="h-[250px] bg-slate-50 animate-pulse rounded-[2.5rem]" />
+              <div key={i} className="h-[250px] bg-muted animate-pulse rounded-[2.5rem]" />
             ))
           ) : requests.length > 0 ? (
             requests.map((req) => (
-              <div key={req.id} className="bg-white border border-slate-200 rounded-[2.5rem] p-8 shadow-sm hover:shadow-xl hover:shadow-slate-200/50 transition-all flex flex-col group">
+              <div key={req.id} className="bg-card border border-border rounded-[2.5rem] p-8 shadow-sm hover:shadow-xl transition-all flex flex-col group">
                 <div className="flex justify-between items-start mb-6">
-                  <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 group-hover:bg-blue-50 group-hover:text-blue-500 transition-all">
+                  <div className="w-14 h-14 bg-muted rounded-2xl flex items-center justify-center text-muted-foreground group-hover:bg-blue-500/10 group-hover:text-blue-400 transition-all">
                     <Package className="w-7 h-7" />
                   </div>
-                  <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 rounded-xl">
+                  <div className="flex items-center gap-2 px-3 py-1.5 bg-muted rounded-xl">
                     {getStatusIcon(req.status)}
-                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-tight">
-                       {req.status === 'pending' ? 'Pending Approval' : req.status}
+                    <span className="text-[10px] font-black text-muted-foreground uppercase tracking-tight">
+                       {req.status === 'pending' ? '승인 대기' : req.status === 'approved' ? '승인 완료' : '반려됨'}
                     </span>
                   </div>
                 </div>
 
                 <div className="flex-1 space-y-4">
                   <div>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">{req.category}</p>
-                    <h3 className="text-xl font-black text-slate-900 tracking-tight">{req.itemName}</h3>
+                    <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em] mb-1">{req.category}</p>
+                    <h3 className="text-xl font-black text-foreground tracking-tight">{req.itemName}</h3>
                   </div>
 
-                  <div className="flex items-center justify-between py-4 border-y border-slate-50">
+                  <div className="flex items-center justify-between py-4 border-y border-border">
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 text-[10px] font-black">
+                      <div className="w-8 h-8 bg-blue-500/20 rounded-full flex items-center justify-center text-blue-400 text-[10px] font-black">
                         {req.userName[0]}
                       </div>
-                      <span className="text-sm font-black text-slate-700">{req.userName}</span>
+                      <span className="text-sm font-black text-foreground">{req.userName}</span>
                     </div>
-                    <div className="flex items-center gap-1 text-blue-600">
+                    <div className="flex items-center gap-1 text-blue-400">
                       <CircleDollarSign className="w-4 h-4" />
                       <span className="text-sm font-black italic">{req.pointsUsed.toLocaleString()} P</span>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase">
+                  <div className="flex items-center gap-2 text-[10px] font-bold text-muted-foreground uppercase">
                      <Clock className="w-3 h-3" />
                      {req.requestedAt?.toDate().toLocaleString('ko-KR')}
                   </div>
@@ -177,13 +177,13 @@ const PCAdminRedemption: React.FC = () => {
                   <div className="flex gap-3 mt-8">
                     <button 
                       onClick={() => handleAction(req.id, 'rejected')}
-                      className="flex-1 py-4 bg-slate-50 text-slate-500 rounded-xl font-black text-xs hover:bg-rose-50 hover:text-rose-500 transition-all"
+                      className="flex-1 py-4 bg-muted text-muted-foreground rounded-xl font-black text-xs hover:bg-rose-500/20 hover:text-rose-400 transition-all border border-transparent hover:border-rose-500/30"
                     >
                       반려
                     </button>
                     <button 
                       onClick={() => handleAction(req.id, 'approved')}
-                      className="flex-[2] py-4 bg-slate-900 text-white rounded-xl font-black text-xs hover:bg-slate-800 transition-all shadow-lg shadow-slate-900/10 flex items-center justify-center gap-2"
+                      className="flex-[2] py-4 bg-blue-600 text-white rounded-xl font-black text-xs hover:bg-blue-500 transition-all shadow-lg shadow-blue-600/10 flex items-center justify-center gap-2"
                     >
                       <CheckCircle2 className="w-4 h-4" />
                       승인 및 지급
@@ -193,9 +193,9 @@ const PCAdminRedemption: React.FC = () => {
               </div>
             ))
           ) : (
-            <div className="col-span-full py-32 flex flex-col items-center gap-6 bg-slate-50/50 rounded-[3rem] border border-dashed border-slate-200">
-              <ShoppingBag className="w-16 h-16 text-slate-200" />
-              <p className="text-slate-400 font-bold text-lg">처리할 신청 내역이 없습니다.</p>
+            <div className="col-span-full py-32 flex flex-col items-center gap-6 bg-muted/30 rounded-[3rem] border border-dashed border-border">
+              <ShoppingBag className="w-16 h-16 text-muted-foreground/30" />
+              <p className="text-muted-foreground font-bold text-lg">처리할 신청 내역이 없습니다.</p>
             </div>
           )}
         </div>

@@ -3,6 +3,7 @@ import { db, handleFirestoreError, OperationType } from '../firebase';
 import { collection, query, where, orderBy, limit, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { useAuth } from '../components/AuthProvider';
 import { HealthReport, Role } from '../types';
+import PCAdminLayout from '../components/PCAdminLayout';
 import { 
   HeartPulse, 
   Plus, 
@@ -132,7 +133,8 @@ const HealthManagement: React.FC = () => {
     r.status.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  return (
+  const isPC = window.location.pathname.startsWith('/admin/pc');
+  const innerContent = (
     <div className="p-2 space-y-6 pb-24">
       {/* Header */}
         <header className="flex flex-col gap-1 px-2">
@@ -355,6 +357,18 @@ const HealthManagement: React.FC = () => {
       </Dialog>
     </div>
   );
+
+  if (isPC) {
+    return (
+      <PCAdminLayout title="보건관리(이상무) 현황">
+        <div className="max-w-[1600px] mx-auto">
+          {innerContent}
+        </div>
+      </PCAdminLayout>
+    );
+  }
+
+  return innerContent;
 };
 
 export default HealthManagement;

@@ -23,18 +23,7 @@ export const Leave: React.FC = () => {
   const [reason, setReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const [accruedDays, setAccruedDays] = useState(0);
   const [usedDays, setUsedDays] = useState(0);
-
-  useEffect(() => {
-    if (!profile?.joinedAt) return;
-    
-    // Calculate accrued days: 1 day per month of service
-    const joinedDate = parseISO(profile.joinedAt);
-    const today = new Date();
-    const months = differenceInMonths(today, joinedDate);
-    setAccruedDays(months >= 12 ? months : 0);
-  }, [profile?.joinedAt]);
 
   useEffect(() => {
     if (!profile) return;
@@ -54,6 +43,12 @@ export const Leave: React.FC = () => {
           const start = parseISO(curr.startDate);
           const end = parseISO(curr.endDate);
           return acc + differenceInDays(end, start) + 1;
+        } else if (curr.type === 'AM_HALF' || curr.type === 'PM_HALF') {
+          return acc + 0.5;
+        } else if (curr.type === 'OUTING_1H' || curr.type === 'OUTING') {
+          return acc + 0.125;
+        } else if (curr.type === 'OUTING_2H') {
+          return acc + 0.25;
         } else {
           return acc + 0.5;
         }
@@ -63,7 +58,8 @@ export const Leave: React.FC = () => {
     return () => unsubscribe();
   }, [profile]);
 
-  const currentBalance = accruedDays - usedDays;
+  const currentBalance = profile?.annualLeaveBalance ?? 0;
+  const accruedDays = currentBalance + usedDays;
 
   const handleSubmit = async () => {
     if (!profile || !selectedRange.from || !reason.trim()) {
@@ -77,6 +73,12 @@ export const Leave: React.FC = () => {
     let diffDays = 0;
     if (leaveType === 'ANNUAL') {
       diffDays = differenceInDays(endDate, startDate) + 1;
+    } else if (leaveType === 'AM_HALF' || leaveType === 'PM_HALF') {
+      diffDays = 0.5;
+    } else if (leaveType === 'OUTING_1H' || leaveType === 'OUTING') {
+      diffDays = 0.125;
+    } else if (leaveType === 'OUTING_2H') {
+      diffDays = 0.25;
     } else {
       diffDays = 0.5;
     }
@@ -109,7 +111,18 @@ export const Leave: React.FC = () => {
       );
       const managersSnapshot = await getDocs(managersQuery);
       const uniqueManagers = Array.from(new Set(managersSnapshot.docs.map(m => m.id)));
-      const typeLabel = leaveType === 'ANNUAL' ? '연차' : '반차';
+      
+      const getLeaveLabel = (t: string) => {
+        if (t === 'ANNUAL') return '연차';
+        if (t === 'AM_HALF') return '오전반차';
+        if (t === 'PM_HALF') return '오후반차';
+        if (t === 'OUTING') return '외출';
+        if (t === 'OUTING_1H') return '외출(1시간)';
+        if (t === 'OUTING_2H') return '외출(2시간)';
+        return '반차';
+      };
+      
+      const typeLabel = getLeaveLabel(leaveType);
 
       for (const managerId of uniqueManagers) {
         if (managerId === profile.uid) continue;
@@ -156,17 +169,21 @@ export const Leave: React.FC = () => {
           </div>
 
           <div className="space-y-4">
-             <div className="grid grid-cols-3 gap-2 p-1 bg-muted rounded-2xl">
-                {['ANNUAL', 'AM_HALF', 'PM_HALF'].map((type) => (
+             <div className="grid grid-cols-2 xs:grid-cols-3 md:grid-cols-6 gap-1.5 p-1 bg-muted rounded-2xl">
+                {['ANNUAL', 'AM_HALF', 'PM_HALF', 'OUTING', 'OUTING_1H', 'OUTING_2H'].map((type) => (
                   <button
                     key={type}
                     onClick={() => setLeaveType(type as any)}
                     className={cn(
-                      "h-12 rounded-xl text-xs font-black transition-all",
+                      "h-12 rounded-xl text-[10px] sm:text-xs font-black transition-all",
                       leaveType === type ? "bg-card text-foreground shadow-lg border border-border/50" : "text-muted-foreground hover:text-foreground"
                     )}
                   >
-                    {type === 'ANNUAL' ? '연차' : type === 'AM_HALF' ? '오전반차' : '오후반차'}
+                    {type === 'ANNUAL' ? '연차' : 
+                     type === 'AM_HALF' ? '오전반차' : 
+                     type === 'PM_HALF' ? '오후반차' : 
+                     type === 'OUTING' ? '외출(기본)' : 
+                     type === 'OUTING_1H' ? '외출 1시간' : '외출 2시간'}
                   </button>
                 ))}
              </div>
@@ -232,7 +249,12 @@ export const Leave: React.FC = () => {
                      </p>
                      <div className="flex items-center gap-2">
                         <Badge className="bg-primary/20 text-primary border-none rounded-lg px-2 h-5 text-[10px] font-black">
-                           {req.type === 'ANNUAL' ? '연차' : '반차'}
+                           {req.type === 'ANNUAL' ? '연차' : 
+                            req.type === 'AM_HALF' ? '오전반차' : 
+                            req.type === 'PM_HALF' ? '오후반차' : 
+                            req.type === 'OUTING' ? '외출(기본)' : 
+                            req.type === 'OUTING_1H' ? '외출 1시간' : 
+                            req.type === 'OUTING_2H' ? '외출 2시간' : '기타'}
                         </Badge>
                         <span className="text-xs text-muted-foreground font-bold truncate">{req.reason}</span>
                      </div>

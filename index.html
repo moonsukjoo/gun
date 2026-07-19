@@ -2,6 +2,40 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script type="text/javascript">
+      (function() {
+        try {
+          if (window.self !== window.top) {
+            var referrer = document.referrer || "";
+            var isAIStudio = referrer.indexOf("ai.studio") !== -1 || 
+                             referrer.indexOf("google.com") !== -1 || 
+                             referrer.indexOf("googleusercontent.com") !== -1;
+            var isLocal = window.location.hostname === "localhost" || 
+                          window.location.hostname === "127.0.0.1" || 
+                          window.location.hostname.indexOf("192.168.") === 0;
+            
+            if (!isAIStudio && !isLocal) {
+              console.log("External iframe embedding detected. Escaping/Busting frame to ensure Firebase Authentication and storage work properly.");
+              window.top.location.replace(window.location.href);
+            }
+          }
+        } catch (e) {
+          try {
+            var referrer = document.referrer || "";
+            var isAIStudio = referrer.indexOf("ai.studio") !== -1 || 
+                             referrer.indexOf("google.com") !== -1 || 
+                             referrer.indexOf("googleusercontent.com") !== -1;
+            var isLocal = window.location.hostname === "localhost" || 
+                          window.location.hostname === "127.0.0.1";
+            if (!isAIStudio && !isLocal) {
+              window.top.location.href = window.location.href;
+            }
+          } catch (e2) {
+            console.error("Frame bust failed:", e2);
+          }
+        }
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -12,7 +46,60 @@
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="src/main.tsx"></script>
+
+    <!-- On-screen diagnostic console for debug visualization -->
+    <div id="runtime-error-console" style="position:fixed; inset:20px; background:#1e1e2e; color:#f38ba8; border:2px solid #f38ba8; padding:20px; border-radius:12px; font-family:monospace; font-size:12px; overflow:auto; z-index:10000000; box-shadow:0 25px 50px -12px rgba(0,0,0,0.5); display:none;">
+      <h3 style="color:#f2cdcd; margin-top:0; font-size:16px; border-bottom:1px solid rgba(243,187,168,0.2); padding-bottom:8px;">⚠️ 모바일 기동/스크립트 로드 정밀 진단</h3>
+      <p style="color:#a6adc8; margin-top:4px; font-size:11px;">애플리케이션 구동 중 발견된 예외/오류 상세 정보입니다.</p>
+      <div id="error-console-logs" style="margin-top:12px; background:#11111b; padding:12px; border-radius:6px; line-height:1.5; white-space:pre-wrap; word-break:break-all;"></div>
+      <button onclick="location.reload()" style="margin-top:12px; padding:8px 16px; background:#f38ba8; border:none; border-radius:4px; color:#11111b; font-weight:bold; cursor:pointer;">새로고침</button>
+    </div>
+
+    <script type="text/javascript">
+      (function() {
+        var consoleLogs = document.getElementById('error-console-logs');
+        var errConsole = document.getElementById('runtime-error-console');
+        
+        function logError(msg, source, line, col, err) {
+          errConsole.style.display = 'block';
+          var text = '❌ 오류: ' + msg;
+          if (source) text += '\n🔗 파일: ' + source;
+          if (line) text += '\n📍 위치: ' + line + '줄 : ' + col + '열';
+          if (err && err.stack) text += '\n\n📋 Stack Trace:\n' + err.stack;
+          consoleLogs.innerHTML += '<div>' + text + '</div><hr style="border-color:rgba(255,255,255,0.05); margin:8px 0;"/>';
+        }
+
+        window.onerror = function(msg, source, line, col, err) {
+          logError(msg, source, line, col, err);
+          return false;
+        };
+
+        window.addEventListener('unhandledrejection', function(event) {
+          var reasonStr = '';
+          if (event && event.reason) {
+            reasonStr = event.reason.stack || event.reason.message || String(event.reason);
+          }
+          // Do not show the scary error console for benign development WebSocket errors
+          if (reasonStr.indexOf('WebSocket') !== -1 || reasonStr.indexOf('websocket') !== -1 || reasonStr.indexOf('vite') !== -1) {
+            console.warn('Ignoring benign development WebSocket/Vite rejection:', reasonStr);
+            return;
+          }
+          errConsole.style.display = 'block';
+          var text = '❌ Unhandled Rejection:\n' + (event.reason ? (event.reason.stack || event.reason.message || event.reason) : '이유 알 수 없음');
+          consoleLogs.innerHTML += '<div>' + text + '</div><hr style="border-color:rgba(255,255,255,0.05); margin:8px 0;"/>';
+        });
+
+        window.addEventListener('error', function(e) {
+          if (e.target && (e.target.tagName === 'SCRIPT' || e.target.tagName === 'LINK')) {
+            errConsole.style.display = 'block';
+            var text = '❌ 리소스 로드 실패: ' + (e.target.src || e.target.href) + ' [' + e.target.tagName + ']';
+            consoleLogs.innerHTML += '<div>' + text + '</div><hr style="border-color:rgba(255,255,255,0.05); margin:8px 0;"/>';
+          }
+        }, true);
+      })();
+    </script>
+
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
 

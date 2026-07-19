@@ -36,6 +36,7 @@ export const MealRequest: React.FC = () => {
     end: format(addDays(new Date(), 30), 'yyyy-MM-dd')
   });
   const [myLunchRequests, setMyLunchRequests] = useState<LunchRequest[]>([]);
+  const [showAllLunch, setShowAllLunch] = useState(false);
 
   // Snack state
   const [snackForm, setSnackForm] = useState({
@@ -43,10 +44,17 @@ export const MealRequest: React.FC = () => {
     deliveryDate: format(addDays(new Date(), 1), 'yyyy-MM-dd')
   });
   const [mySnackRequests, setMySnackRequests] = useState<SnackRequest[]>([]);
+  const [showAllSnacks, setShowAllSnacks] = useState(false);
 
   const canRequestSnack = profile && (
     ['TEAM_LEADER', 'DIRECTOR', 'GENERAL_MANAGER', 'CEO'].includes(profile.role) ||
     (profile.position && ['팀장', '직장', '소장', '총무'].some(p => profile.position?.includes(p)))
+  );
+
+  const canManageMeal = profile && (
+    ['GENERAL_MANAGER', 'CLERK', 'CEO'].includes(profile.role) ||
+    profile.permissions?.includes('meal_snack_mgmt') ||
+    (profile.position && ['실장', '서무'].some(p => profile.position?.includes(p)))
   );
 
   useEffect(() => {
@@ -183,14 +191,26 @@ export const MealRequest: React.FC = () => {
 
   return (
     <div className="space-y-6 pb-24 px-1 max-w-4xl mx-auto">
-      <div className="flex items-center gap-4 py-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/')} className="rounded-full text-foreground hover:bg-muted">
-          <ChevronLeft className="w-6 h-6" />
-        </Button>
-        <div>
-          <h1 className="text-2xl font-black text-foreground tracking-tight leading-none">식사 및 간식 신청</h1>
-          <p className="text-sm text-muted-foreground font-bold mt-1">개인 식사 및 팀 간식 신청</p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-4 border-b border-border/50">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="icon" onClick={() => navigate('/')} className="rounded-full text-foreground hover:bg-muted">
+            <ChevronLeft className="w-6 h-6" />
+          </Button>
+          <div>
+            <h1 className="text-2xl font-black text-foreground tracking-tight leading-none">식사 및 간식 신청</h1>
+            <p className="text-sm text-muted-foreground font-bold mt-1">개인 식사 및 팀 간식 신청</p>
+          </div>
         </div>
+
+        {canManageMeal && (
+          <Button 
+            onClick={() => navigate('/meal-mgmt')}
+            className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-2xl h-11 px-5 text-xs shadow-lg shadow-emerald-950/20 flex gap-2 items-center"
+          >
+            <CheckCircle2 className="w-4 h-4" />
+            도시락·간식 승인/관리 🍱
+          </Button>
+        )}
       </div>
 
       {/* Tabs */}
@@ -253,8 +273,8 @@ export const MealRequest: React.FC = () => {
                 <div className="bg-primary/5 rounded-2xl p-4 border border-primary/20 flex gap-3">
                   <AlertCircle className="w-5 h-5 text-primary shrink-0 mt-1" />
                   <p className="text-xs font-bold text-primary/80 leading-relaxed">
-                    식사는 지정된 기간 동안 매일(평일 기준) 수급되는 시스템입니다. <br/>
-                    서무 또는 실장이 최종 확인 후 수급이 시작됩니다.
+                    식사는 지정된 기간 동안 매일 전달되는 시스템입니다. <br/>
+                    서무 또는 실장이 최종 확인 후 전달이 시작됩니다.
                   </p>
                 </div>
 
@@ -280,23 +300,34 @@ export const MealRequest: React.FC = () => {
                   <p className="text-muted-foreground/20 font-bold">최근 신청 내역이 없습니다.</p>
                 </div>
               ) : (
-                myLunchRequests.map(req => (
-                  <div key={req.id} className="bg-card border border-border p-5 rounded-2xl flex items-center justify-between hover:bg-muted/30 transition-all shadow-none">
-                    <div className="space-y-1">
-                      <p className="text-sm font-black text-foreground">
-                        {req.startDate} ~ {req.endDate}
-                      </p>
-                      <p className="text-[10px] text-muted-foreground/40 font-bold">신청일: {format(new Date(req.createdAt), 'yyyy-MM-dd')}</p>
+                <>
+                  {(showAllLunch ? myLunchRequests : myLunchRequests.slice(0, 3)).map(req => (
+                    <div key={req.id} className="bg-card border border-border p-5 rounded-2xl flex items-center justify-between hover:bg-muted/30 transition-all shadow-none">
+                      <div className="space-y-1">
+                        <p className="text-sm font-black text-foreground">
+                          {req.startDate} ~ {req.endDate}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground/40 font-bold">신청일: {format(new Date(req.createdAt), 'yyyy-MM-dd')}</p>
+                      </div>
+                      <div className={`px-3 py-1 rounded-full text-[10px] font-black ${
+                        req.status === 'APPROVED' ? 'bg-emerald-500/20 text-emerald-500' :
+                        req.status === 'REJECTED' ? 'bg-red-500/20 text-red-500' :
+                        'bg-amber-500/20 text-amber-500'
+                      }`}>
+                        {req.status === 'APPROVED' ? '승인완료' : req.status === 'REJECTED' ? '반려' : '대기중'}
+                      </div>
                     </div>
-                    <div className={`px-3 py-1 rounded-full text-[10px] font-black ${
-                      req.status === 'APPROVED' ? 'bg-emerald-500/20 text-emerald-500' :
-                      req.status === 'REJECTED' ? 'bg-red-500/20 text-red-500' :
-                      'bg-amber-500/20 text-amber-500'
-                    }`}>
-                      {req.status === 'APPROVED' ? '승인완료' : req.status === 'REJECTED' ? '반려' : '대기중'}
-                    </div>
-                  </div>
-                ))
+                  ))}
+                  {myLunchRequests.length > 3 && (
+                    <Button
+                      variant="ghost"
+                      onClick={() => setShowAllLunch(!showAllLunch)}
+                      className="w-full h-11 text-xs font-black bg-muted/30 hover:bg-muted/60 border border-border rounded-2xl transition-all"
+                    >
+                      {showAllLunch ? '접기' : `신청내역 더보기 (${myLunchRequests.length - 3}개 더 있음)`}
+                    </Button>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -401,24 +432,36 @@ export const MealRequest: React.FC = () => {
                       <p className="text-muted-foreground/20 font-bold">최근 신청 내역이 없습니다.</p>
                     </div>
                   ) : (
-                    mySnackRequests.map(req => (
-                      <div key={req.id} className="bg-card border border-border p-5 rounded-2xl flex items-center justify-between hover:bg-muted/30 transition-all shadow-none">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                             <span className="text-sm font-black text-foreground">{req.deliveryDate}</span>
-                             <span className="text-[10px] font-black bg-amber-500/10 text-amber-500 px-2 rounded-md">{req.quantity}개</span>
+                    <>
+                      {(showAllSnacks ? mySnackRequests : mySnackRequests.slice(0, 3)).map(req => (
+                        <div key={req.id} className="bg-card border border-border p-5 rounded-2xl flex items-center justify-between hover:bg-muted/30 transition-all shadow-none">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                               <span className="text-sm font-black text-foreground">{req.deliveryDate}</span>
+                               <span className="text-[10px] font-black bg-amber-500/10 text-amber-500 px-2 rounded-md">{req.quantity}개</span>
+                            </div>
+                            <p className="text-[10px] text-muted-foreground/40 font-bold">신청자: {req.userName} | {req.departmentName}</p>
                           </div>
-                          <p className="text-[10px] text-muted-foreground/40 font-bold">신청자: {req.userName} | {req.departmentName}</p>
+                          <div className={`px-3 py-1 rounded-full text-[10px] font-black ${
+                            req.status === 'APPROVED' ? 'bg-emerald-500/20 text-emerald-500' :
+                            req.status === 'REJECTED' ? 'bg-red-500/20 text-red-500' :
+                            'bg-amber-500/20 text-amber-500'
+                           }`}>
+                            {req.status === 'APPROVED' ? '배송확정' : req.status === 'REJECTED' ? '반려' : '대기중'}
+                          </div>
                         </div>
-                        <div className={`px-3 py-1 rounded-full text-[10px] font-black ${
-                          req.status === 'APPROVED' ? 'bg-emerald-500/20 text-emerald-500' :
-                          req.status === 'REJECTED' ? 'bg-red-500/20 text-red-500' :
-                          'bg-amber-500/20 text-amber-500'
-                         }`}>
-                          {req.status === 'APPROVED' ? '배송확정' : req.status === 'REJECTED' ? '반려' : '대기중'}
-                        </div>
-                      </div>
-                    ))
+                      ))}
+                      {mySnackRequests.length > 3 && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          onClick={() => setShowAllSnacks(!showAllSnacks)}
+                          className="w-full h-11 text-xs font-black bg-muted/30 hover:bg-muted/60 border border-border rounded-2xl transition-all"
+                        >
+                          {showAllSnacks ? '접기' : `신청내역 더보기 (${mySnackRequests.length - 3}개 더 있음)`}
+                        </Button>
+                      )}
+                    </>
                   )}
                 </div>
               </div>

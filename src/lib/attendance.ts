@@ -11,8 +11,13 @@ export interface AttendanceStats {
  * - Regular work: 08:00 - 17:00 (Max 8h)
  * - Lunch: 12:00 - 13:00 (excluded)
  * - OT Multiplier: 1.5x for time after 17:00
+ * - Holiday & Weekend Multiplier: 1.5x multiplier on workHours and overtimeHours for Sat, Sun, public holidays, or custom 1.5x dates
  */
-export function calculateAttendanceHours(clockIn: string | Date, clockOut: string | Date): AttendanceStats {
+export function calculateAttendanceHours(
+  clockIn: string | Date, 
+  clockOut: string | Date,
+  isSpecialMultiplierDay: boolean = false
+): AttendanceStats {
   const inDate = typeof clockIn === 'string' ? parseISO(clockIn) : clockIn;
   const outDate = typeof clockOut === 'string' ? parseISO(clockOut) : clockOut;
 
@@ -20,6 +25,12 @@ export function calculateAttendanceHours(clockIn: string | Date, clockOut: strin
   if (isNaN(inDate.getTime()) || isNaN(outDate.getTime()) || outDate < inDate) {
     return { workHours: 0, overtimeHours: 0 };
   }
+
+  // Saturday is 6, Sunday is 0
+  const day = inDate.getDay();
+  const isWeekend = day === 0 || day === 6;
+
+  const multiplier = (isWeekend || isSpecialMultiplierDay) ? 1.5 : 1.0;
 
   // Helper to create a date on the same day as clock-in with specific time
   const getDayTime = (date: Date, hours: number, minutes: number = 0) => {
@@ -54,7 +65,7 @@ export function calculateAttendanceHours(clockIn: string | Date, clockOut: strin
     regularMinutes = totalRegMinutes - lunchMinutes;
   }
   
-  const workHours = Math.floor(Math.max(0, regularMinutes / 60));
+  const rawWorkHours = Math.max(0, regularMinutes / 60);
 
   // 2. Overtime Hours Calculation (Time after 17:00)
   let overtimeMinutes = 0;
@@ -64,8 +75,11 @@ export function calculateAttendanceHours(clockIn: string | Date, clockOut: strin
     overtimeMinutes = Math.max(0, differenceInMinutes(outDate, otStart));
   }
   
-  // Return strictly in 1-hour units as requested (no decimals like 0.1 or 0.5)
-  const overtimeHours = Math.floor(overtimeMinutes / 60);
+  const rawOvertimeHours = overtimeMinutes / 60;
+
+  // Return hours and apply multiplier (round to 1 decimal place to support dynamic halves like 4.5, 7.5 etc.)
+  const workHours = Math.floor((rawWorkHours * multiplier) * 10) / 10;
+  const overtimeHours = Math.floor((rawOvertimeHours * multiplier) * 10) / 10;
 
   return {
     workHours,

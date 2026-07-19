@@ -42,8 +42,90 @@ export const LeaveManagement: React.FC = () => {
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeTab, setActiveTab] = useState<'PENDING' | 'HISTORY' | 'EMPLOYEES'>('PENDING');
+  const [activeTab, setActiveTab] = useState<'PENDING' | 'HISTORY' | 'CALENDAR' | 'EMPLOYEES'>('CALENDAR');
   const [loading, setLoading] = useState(true);
+  const [selectedDayDetail, setSelectedDayDetail] = useState<{ dayStr: string; leaves: LeaveRequest[] } | null>(null);
+
+  // Calendar States & Helpers
+  const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
+  const [currentMonth, setCurrentMonth] = useState(new Date().getMonth()); // 0-indexed
+
+  const handlePrevMonth = () => {
+    if (currentMonth === 0) {
+      setCurrentMonth(11);
+      setCurrentYear(prev => prev - 1);
+    } else {
+      setCurrentMonth(prev => prev - 1);
+    }
+  };
+
+  const handleNextMonth = () => {
+    if (currentMonth === 11) {
+      setCurrentMonth(0);
+      setCurrentYear(prev => prev + 1);
+    } else {
+      setCurrentMonth(prev => prev + 1);
+    }
+  };
+
+  const getDaysInMonth = (year: number, month: number) => {
+    const date = new Date(year, month, 1);
+    const days = [];
+    const firstDayIndex = date.getDay();
+    const prevMonthDate = new Date(year, month, 0);
+    const prevMonthDaysCount = prevMonthDate.getDate();
+
+    for (let i = firstDayIndex - 1; i >= 0; i--) {
+      days.push({
+        date: new Date(year, month - 1, prevMonthDaysCount - i),
+        isCurrentMonth: false
+      });
+    }
+
+    const currentMonthDate = new Date(year, month + 1, 0);
+    const currentMonthDaysCount = currentMonthDate.getDate();
+    for (let i = 1; i <= currentMonthDaysCount; i++) {
+      days.push({
+        date: new Date(year, month, i),
+        isCurrentMonth: true
+      });
+    }
+
+    const totalSlots = Math.ceil(days.length / 7) * 7;
+    const nextMonthDaysCount = totalSlots - days.length;
+    for (let i = 1; i <= nextMonthDaysCount; i++) {
+      days.push({
+        date: new Date(year, month + 1, i),
+        isCurrentMonth: false
+      });
+    }
+
+    return days;
+  };
+
+  // Authority levels: Diff level of permissions explicitly handled
+  const isAllViewAuthorized = !!profile && (
+    ['CEO', 'DIRECTOR', 'GENERAL_AFFAIRS', 'CLERK', 'GENERAL_MANAGER', 'SAFETY_MANAGER'].includes(profile.role) || 
+    profile.permissions?.includes('leave_mgmt') ||
+    profile.permissions?.includes('admin') ||
+    (profile.position && ['소장', '총무', '서무', '실장', '안전관리자', '대표', '사장'].some(p => profile.position?.includes(p)))
+  );
+
+  const isTeamViewAuthorized = !!profile && (
+    profile.role === 'TEAM_LEADER' || 
+    (profile.position && ['팀장', '직장'].some(p => profile.position?.includes(p))) ||
+    profile.permissions?.includes('team_work_log_approve')
+  );
+
+  const calendarRequests = requests.filter(req => {
+    if (isAllViewAuthorized) return true;
+    if (isTeamViewAuthorized) {
+      const reqUser = users.find(u => u.uid === req.uid);
+      if (!reqUser) return false;
+      return reqUser.departmentName === profile?.departmentName || reqUser.departmentId === profile?.departmentId;
+    }
+    return req.uid === profile?.uid;
+  });
 
   useEffect(() => {
     const minLoadTime = new Promise(resolve => setTimeout(resolve, 800));
@@ -68,9 +150,52 @@ export const LeaveManagement: React.FC = () => {
     };
   }, []);
 
+  const getLeaveDays = (type: string, startDate: string, endDate: string): number => {
+    if (type === 'ANNUAL') {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      const diffTime = Math.abs(end.getTime() - start.getTime());
+      return Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+    } else if (type === 'AM_HALF' || type === 'PM_HALF') {
+      return 0.5;
+    } else if (type === 'OUTING_1H' || type === 'OUTING') {
+      return 0.125;
+    } else if (type === 'OUTING_2H') {
+      return 0.25;
+    }
+    return 0.5;
+  };
+
   const handleApprove = async (request: LeaveRequest) => {
     try {
-      await updateDoc(doc(db, 'leaveRequests', request.id), { status: 'APPROVED' });
+      if (!request.id) return;
+      const reqRef = doc(db, 'leaveRequests', request.id);
+      const reqSnap = await getDoc(reqRef);
+      if (!reqSnap.exists()) {
+        toast.error('신청 내역을 찾을 수 없습니다.');
+        return;
+      }
+      const reqData = reqSnap.data() as LeaveRequest;
+      const originalStatus = reqData.status;
+
+      await updateDoc(reqRef, { 
+        status: 'APPROVED',
+        updatedAt: new Date().toISOString()
+      });
+
+      // Deduction on approval from PENDING (or REJECTED)
+      if (originalStatus !== 'APPROVED') {
+        const diffDays = getLeaveDays(reqData.type, reqData.startDate, reqData.endDate);
+        const userRef = doc(db, 'users', reqData.uid);
+        const userSnap = await getDoc(userRef);
+        if (userSnap.exists()) {
+          const userData = userSnap.data() as UserProfile;
+          const currentBalance = userData.annualLeaveBalance || 0;
+          await updateDoc(userRef, {
+            annualLeaveBalance: Number((currentBalance - diffDays).toFixed(3))
+          });
+        }
+      }
       
       await addDoc(collection(db, 'notifications'), {
         uid: request.uid,
@@ -103,33 +228,40 @@ export const LeaveManagement: React.FC = () => {
 
       toast.success('승인 완료');
     } catch (e) {
+      console.error(e);
       toast.error('오류 발생');
     }
   };
 
   const handleReject = async (request: LeaveRequest) => {
     try {
-      await updateDoc(doc(db, 'leaveRequests', request.id), { status: 'REJECTED' });
-      
-      // Return balance if rejected (since we subtracted it on submission)
-      const userRef = doc(db, 'users', request.uid);
-      const userSnap = await getDoc(userRef);
-      if (userSnap.exists()) {
-        const userData = userSnap.data() as UserProfile;
-        
-        let diffDays = 0;
-        if (request.type === 'ANNUAL') {
-          const start = new Date(request.startDate);
-          const end = new Date(request.endDate);
-          const diffTime = Math.abs(end.getTime() - start.getTime());
-          diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-        } else {
-          diffDays = 0.5;
-        }
+      if (!request.id) return;
+      const reqRef = doc(db, 'leaveRequests', request.id);
+      const reqSnap = await getDoc(reqRef);
+      if (!reqSnap.exists()) {
+        toast.error('신청 내역을 찾을 수 없습니다.');
+        return;
+      }
+      const reqData = reqSnap.data() as LeaveRequest;
+      const originalStatus = reqData.status;
 
-        await updateDoc(userRef, {
-          annualLeaveBalance: (userData.annualLeaveBalance || 0) + diffDays
-        });
+      await updateDoc(reqRef, { 
+        status: 'REJECTED',
+        updatedAt: new Date().toISOString()
+      });
+      
+      // Return balance only if it was already in APPROVED state
+      if (originalStatus === 'APPROVED') {
+        const diffDays = getLeaveDays(reqData.type, reqData.startDate, reqData.endDate);
+        const userRef = doc(db, 'users', reqData.uid);
+        const userSnap = await getDoc(userRef);
+        if (userSnap.exists()) {
+          const userData = userSnap.data() as UserProfile;
+          const currentBalance = userData.annualLeaveBalance || 0;
+          await updateDoc(userRef, {
+            annualLeaveBalance: Number((currentBalance + diffDays).toFixed(3))
+          });
+        }
       }
 
       await addDoc(collection(db, 'notifications'), {
@@ -141,8 +273,9 @@ export const LeaveManagement: React.FC = () => {
         createdAt: new Date().toISOString()
       });
 
-      toast.info('반려 처리 완료 (연차 복구)');
+      toast.info('반려 처리 완료');
     } catch (e) {
+      console.error(e);
       toast.error('오류 발생');
     }
   };
@@ -228,7 +361,7 @@ export const LeaveManagement: React.FC = () => {
       </header>
 
       <div className="flex p-1 bg-muted/50 rounded-2xl gap-1">
-        {(['PENDING', 'HISTORY', 'EMPLOYEES'] as const).map(tab => (
+        {(['PENDING', 'HISTORY', 'CALENDAR', 'EMPLOYEES'] as const).map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -237,12 +370,142 @@ export const LeaveManagement: React.FC = () => {
               activeTab === tab ? "bg-card text-foreground shadow-lg" : "text-muted-foreground/60 hover:text-muted-foreground/90"
             )}
           >
-            {tab === 'PENDING' ? `승인대기 (${pendingRequests.length})` : tab === 'HISTORY' ? '처리내역' : '연차조정'}
+            {tab === 'PENDING' ? `승인대기 (${pendingRequests.length})` : tab === 'HISTORY' ? '처리내역' : tab === 'CALENDAR' ? '캘린더' : '연차조정'}
           </button>
         ))}
       </div>
 
       <div className="space-y-4">
+        {activeTab === 'CALENDAR' && (
+          <Card className="border border-border rounded-3xl bg-card shadow-none p-6 space-y-6">
+            <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <h3 className="font-black text-base text-foreground flex items-center gap-2">
+                  <CalendarDays className="w-5 h-5 text-primary" />
+                  {isAllViewAuthorized ? "전 사원 연차/외출 현황 캘린더" : `${profile?.departmentName || '소속'} 팀원 연차/외출 현황`}
+                </h3>
+                <p className="text-[10px] font-bold text-muted-foreground">
+                  {isAllViewAuthorized 
+                    ? "대표/소장/총무/서무/실장/안전관리자 권한으로 전사원의 현황을 조회 중입니다." 
+                    : "소속 팀장/직장 권한으로 부서원들의 신청 현황만 조회 중입니다."}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-1.5 bg-muted p-1 rounded-xl self-end xs:self-auto">
+                <button 
+                  onClick={handlePrevMonth}
+                  className="w-8 h-8 rounded-lg text-foreground bg-card shadow-sm hover:bg-card/80 flex items-center justify-center font-bold active:scale-95 transition-all text-xs"
+                >
+                  &lt;
+                </button>
+                <span className="font-black text-xs px-2 text-foreground min-w-[70px] text-center">
+                  {currentYear}년 {currentMonth + 1}월
+                </span>
+                <button 
+                  onClick={handleNextMonth}
+                  className="w-8 h-8 rounded-lg text-foreground bg-card shadow-sm hover:bg-card/80 flex items-center justify-center font-bold active:scale-95 transition-all text-xs"
+                >
+                  &gt;
+                </button>
+              </div>
+            </div>
+
+            {/* Calendar Grid headers */}
+            <div className="grid grid-cols-7 gap-1 text-center border-b border-border pb-2">
+              {['일', '월', '화', '수', '목', '금', '토'].map((day, idx) => (
+                <span key={day} className={cn(
+                  "text-[10px] font-black uppercase tracking-wider",
+                  idx === 0 ? "text-red-500" : idx === 6 ? "text-indigo-400" : "text-muted-foreground"
+                )}>
+                  {day}
+                </span>
+              ))}
+            </div>
+
+            {/* Days in Month Grid */}
+            <div className="grid grid-cols-7 gap-1.5 min-h-[300px]">
+              {getDaysInMonth(currentYear, currentMonth).map((day, i) => {
+                const formattedStr = format(day.date, 'yyyy-MM-dd');
+                const isToday = format(new Date(), 'yyyy-MM-dd') === formattedStr;
+                
+                // Get approved requests for this date
+                const dayApprovedLeaves = calendarRequests.filter(req => {
+                  return req.status === 'APPROVED' && formattedStr >= req.startDate && formattedStr <= req.endDate;
+                });
+
+                // Get pending requests for this date
+                const dayPendingLeaves = calendarRequests.filter(req => {
+                  return req.status === 'PENDING' && formattedStr >= req.startDate && formattedStr <= req.endDate;
+                });
+
+                const allDayRequests = [...dayApprovedLeaves, ...dayPendingLeaves];
+
+                return (
+                  <div 
+                    key={i} 
+                    onClick={() => {
+                      setSelectedDayDetail({ dayStr: formattedStr, leaves: allDayRequests });
+                    }}
+                    className={cn(
+                      "min-h-[85px] bg-muted/20 border border-border/40 rounded-xl p-1 flex flex-col space-y-1 transition-all cursor-pointer hover:bg-muted/40 hover:border-muted-foreground/30 active:scale-[0.98] select-none",
+                      !day.isCurrentMonth && "opacity-30",
+                      isToday && "bg-primary/5 border-primary/30 shadow-sm"
+                    )}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className={cn(
+                        "text-[10px] font-black",
+                        day.date.getDay() === 0 ? "text-red-500" : day.date.getDay() === 6 ? "text-indigo-400" : "text-foreground",
+                        isToday && "bg-primary text-primary-foreground w-4 h-4 rounded-full flex items-center justify-center my-0.5 text-[8px]"
+                      )}>
+                        {day.date.getDate()}
+                      </span>
+                    </div>
+
+                    <div className="flex-1 space-y-0.5 overflow-y-auto max-h-[60px] scrollbar-none">
+                      {dayApprovedLeaves.map(leave => (
+                        <div key={leave.id} className={cn(
+                          "text-[9px] font-black px-1 py-0.5 rounded flex items-center justify-between",
+                          leave.type === 'ANNUAL' ? "bg-indigo-500/10 text-indigo-400 border border-indigo-500/10" :
+                          ['OUTING', 'OUTING_1H', 'OUTING_2H'].includes(leave.type) ? "bg-amber-500/10 text-amber-500 border border-amber-500/10" :
+                          "bg-teal-500/10 text-teal-400 border border-teal-500/10"
+                        )}>
+                          <span className="truncate max-w-[34px]">{leave.displayName}</span>
+                          <span className="opacity-75 font-bold scale-[0.8] origin-right shrink-0 font-mono">
+                            {leave.type === 'ANNUAL' ? '연' : 
+                             leave.type === 'OUTING_1H' ? '외1' : 
+                             leave.type === 'OUTING_2H' ? '외2' : '외'}
+                          </span>
+                        </div>
+                      ))}
+
+                      {dayPendingLeaves.map(leave => (
+                        <div key={leave.id} className={cn(
+                          "text-[9px] font-black px-1 py-0.5 rounded flex items-center justify-between border border-dashed",
+                          leave.type === 'ANNUAL' ? "bg-indigo-500/5 text-indigo-400/70 border-indigo-500/30" :
+                          ['OUTING', 'OUTING_1H', 'OUTING_2H'].includes(leave.type) ? "bg-amber-500/5 text-amber-500/70 border-amber-500/30" :
+                          "bg-teal-500/5 text-teal-400/70 border-teal-500/30"
+                        )}>
+                          <span className="truncate max-w-[34px]">{leave.displayName}</span>
+                          <span className="opacity-75 font-bold scale-[0.8] origin-right shrink-0">대기</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Legend guide info */}
+            <div className="flex flex-wrap gap-3 pt-2 text-[10px] font-black justify-end text-muted-foreground uppercase tracking-widest border-t border-border/50">
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-indigo-500/10 border border-indigo-500/20" /> 연차</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-teal-500/10 border border-teal-500/20" /> 오전/오후반차</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-amber-500/10 border border-amber-500/20" /> 외출</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full border border-dashed border-gray-450" /> 승인 대기중</span>
+            </div>
+          </Card>
+        )}
+
         {activeTab === 'PENDING' && (
           pendingRequests.length > 0 ? (
             pendingRequests.map(req => (
@@ -384,6 +647,99 @@ export const LeaveManagement: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Calendar Day Detail Modal */}
+      {selectedDayDetail && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setSelectedDayDetail(null)}>
+          <div className="bg-card border border-border rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6 border-b border-border flex items-center justify-between bg-muted/30">
+              <div>
+                <h3 className="text-base font-black text-foreground">
+                  {format(new Date(selectedDayDetail.dayStr), 'yyyy년 MM월 dd일')} 현황
+                </h3>
+                <p className="text-[10px] font-bold text-muted-foreground mt-0.5">이 날짜의 연차 및 외출/반차 신청 총 {selectedDayDetail.leaves.length}건</p>
+              </div>
+              <button
+                onClick={() => setSelectedDayDetail(null)}
+                className="w-8 h-8 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground flex items-center justify-center transition-all text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-6 max-h-[350px] overflow-y-auto space-y-4">
+              {selectedDayDetail.leaves.length === 0 ? (
+                <div className="py-12 text-center text-muted-foreground text-xs font-bold">
+                   이 날짜에 신청된 결재 내역이 없습니다.
+                </div>
+              ) : (
+                selectedDayDetail.leaves.map((leave) => {
+                  const getKoreanType = (t: string) => {
+                    if (t === 'ANNUAL') return '연차';
+                    if (t === 'AM_HALF') return '오전반차';
+                    if (t === 'PM_HALF') return '오후반차';
+                    if (t === 'OUTING') return '외출(기본)';
+                    if (t === 'OUTING_1H') return '외출 1시간';
+                    if (t === 'OUTING_2H') return '외출 2시간';
+                    return '반차/휴가';
+                  };
+                  return (
+                    <div key={leave.id} className="border border-border/60 rounded-2xl p-4 space-y-3 bg-muted/10">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-full bg-primary/10 overflow-hidden flex items-center justify-center font-black text-xs text-primary">
+                            {leave.displayName?.charAt(0) || '사'}
+                          </div>
+                          <div>
+                            <p className="text-xs font-black text-foreground">{leave.displayName || '미상'}</p>
+                            <p className="text-[9px] text-muted-foreground font-bold">신청일: {format(new Date(leave.createdAt), 'MM/dd HH:mm')}</p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <span className={cn(
+                            "text-[9px] font-black px-1.5 py-0.5 rounded",
+                            leave.type === 'ANNUAL' ? "bg-indigo-500/10 text-indigo-500 border border-indigo-500/10" :
+                            ['OUTING', 'OUTING_1H', 'OUTING_2H'].includes(leave.type) ? "bg-amber-500/10 text-amber-500 border border-amber-500/10" :
+                            "bg-teal-500/10 text-teal-500 border border-teal-500/10"
+                          )}>
+                            {getKoreanType(leave.type)}
+                          </span>
+
+                          <span className={cn(
+                            "text-[9px] font-black px-1.5 py-0.5 rounded border",
+                            leave.status === 'APPROVED' ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" :
+                            leave.status === 'PENDING' ? "bg-orange-500/10 text-orange-500 border-orange-500/20" :
+                            "bg-red-500/10 text-red-500 border-red-500/20"
+                          )}>
+                            {leave.status === 'APPROVED' ? '승인' : leave.status === 'PENDING' ? '대기' : '반려'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="px-3 py-2 bg-muted/50 rounded-xl space-y-0.5">
+                        <p className="text-[9px] font-black text-muted-foreground">신청 기간</p>
+                        <p className="text-xs font-bold text-foreground">{leave.startDate} ~ {leave.endDate}</p>
+                      </div>
+
+                      <div className="px-3 py-2 bg-muted/30 rounded-xl space-y-0.5">
+                        <p className="text-[9px] font-black text-muted-foreground">신청 사유</p>
+                        <p className="text-xs font-bold text-foreground leading-relaxed">"{leave.reason}"</p>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="p-4 border-t border-border flex justify-end bg-muted/20">
+              <Button onClick={() => setSelectedDayDetail(null)} className="h-10 px-6 rounded-xl font-black bg-primary text-white text-xs">
+                닫기
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

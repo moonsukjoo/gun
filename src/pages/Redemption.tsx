@@ -140,9 +140,9 @@ export const Redemption: React.FC = () => {
             )}
           </div>
 
-          <div className="bg-amber-500/10 p-4 rounded-xl flex gap-3 border border-amber-500/20">
-            <AlertCircle className="w-5 h-5 text-amber-500 shrink-0" />
-            <p className="text-xs font-bold text-amber-700 dark:text-amber-200/70 leading-relaxed">
+          <div className="custom-alert-warning p-4 rounded-xl flex gap-3">
+            <AlertCircle className="alert-icon w-5 h-5 shrink-0" />
+            <p className="text-xs font-black leading-relaxed">
               신청 시 포인트가 즉시 차감됩니다. 실장님 승인 후 실제 현금으로 지급되며, 반려 시 포인트는 다시 복구됩니다.
             </p>
           </div>

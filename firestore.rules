@@ -16,69 +16,85 @@ service cloud.firestore {
     }
 
     function isCoreAdmin() {
+      let email = (request.auth != null && 'email' in request.auth.token && request.auth.token.email != null) ? request.auth.token.email.lower() : '';
+      let userExists = exists(/databases/$(database)/documents/users/$(request.auth.uid));
+      let userData = userExists ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data : null;
+      let userEmail = userData != null ? userData.get('email', '').lower() : '';
+      let userRole = userData != null ? userData.get('role', '') : '';
+      let userPermissions = (userData != null && 'permissions' in userData && userData.permissions != null && userData.permissions is list) ? userData.permissions : [];
       return isAuthenticated() && (
-        (request.auth.token.email != null && request.auth.token.email.lower() == "tjrwnfjqm1@gmail.com") ||
-        (
-          !isExcludedRole() && 
-          exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
-            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['CEO', 'DIRECTOR', 'GENERAL_MANAGER'] ||
-            (
-              'permissions' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data && 
-              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions != null &&
-              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions.hasAny(['admin'])
-            )
-          )
-        )
+        email == "tjrwnfjqm1@gmail.com" ||
+        userEmail == "tjrwnfjqm1@gmail.com" ||
+        userRole in ['CEO', 'DIRECTOR', 'GENERAL_MANAGER'] ||
+        userPermissions.hasAny(['admin'])
       );
     }
 
     function isHRManager() {
-      return isAuthenticated() && !isExcludedRole() && (
-        isCoreAdmin() || (
-          exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
-            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['GENERAL_AFFAIRS', 'CLERK', 'SAFETY_MANAGER', 'TEAM_LEADER'] ||
-            (
-              'permissions' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data && 
-              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions != null &&
-              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions.hasAny(['employee_mgmt', 'leave_mgmt', 'attendance_mgmt', 'notice_mgmt', 'redemption_mgmt', 'training_mgmt', 'accident_mgmt'])
-            )
-          )
-        )
+      let email = (request.auth != null && 'email' in request.auth.token && request.auth.token.email != null) ? request.auth.token.email.lower() : '';
+      let userExists = exists(/databases/$(database)/documents/users/$(request.auth.uid));
+      let userData = userExists ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data : null;
+      let userEmail = userData != null ? userData.get('email', '').lower() : '';
+      let userRole = userData != null ? userData.get('role', '') : '';
+      let userPermissions = (userData != null && 'permissions' in userData && userData.permissions != null && userData.permissions is list) ? userData.permissions : [];
+      return isAuthenticated() && (
+        email == "tjrwnfjqm1@gmail.com" ||
+        (!isExcludedRole() && (
+          isCoreAdmin() ||
+          userEmail == "tjrwnfjqm1@gmail.com" ||
+          userRole in ['CEO', 'DIRECTOR', 'GENERAL_MANAGER', 'GENERAL_AFFAIRS', 'CLERK', 'SAFETY_MANAGER', 'TEAM_LEADER'] ||
+          userPermissions.hasAny(['employee_mgmt', 'leave_mgmt', 'attendance_mgmt', 'notice_mgmt', 'redemption_mgmt', 'training_mgmt', 'accident_mgmt'])
+        ))
       );
     }
 
     function canManageLeave() {
-      return isHRManager() || (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && ('permissions' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions.hasAny(['leave_mgmt']));
+      let userExists = exists(/databases/$(database)/documents/users/$(request.auth.uid));
+      let userData = userExists ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data : null;
+      let userPermissions = (userData != null && 'permissions' in userData && userData.permissions != null && userData.permissions is list) ? userData.permissions : [];
+      return isHRManager() || (userPermissions.hasAny(['leave_mgmt']));
     }
 
     function canManageCoupons() {
-      return isHRManager() || (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && ('permissions' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions.hasAny(['coupon_mgmt', 'redemption_mgmt', 'praise_coupon']));
+      let userExists = exists(/databases/$(database)/documents/users/$(request.auth.uid));
+      let userData = userExists ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data : null;
+      let userPermissions = (userData != null && 'permissions' in userData && userData.permissions != null && userData.permissions is list) ? userData.permissions : [];
+      return isHRManager() || (userPermissions.hasAny(['coupon_mgmt', 'redemption_mgmt', 'praise_coupon']));
     }
 
     function isSafetyManager() {
-      return isHRManager() || (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'SAFETY_MANAGER');
+      let userExists = exists(/databases/$(database)/documents/users/$(request.auth.uid));
+      let userData = userExists ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data : null;
+      let userRole = userData != null ? userData.get('role', '') : '';
+      return isHRManager() || userRole == 'SAFETY_MANAGER';
     }
 
     function isRestrictedUser(data, email) {
-      return (data == null && email != null && email.lower().matches('.*x66626.*')) ||
+      let empId = data.get('employeeId', '');
+      let dispName = data.get('displayName', '');
+      let uEmail = data.get('email', '');
+      return (data == null && email != null && email.matches('.*x66626.*')) ||
              (data != null && (
-               data.get('employeeId', '').lower().matches('.*x66626.*') || 
-               data.get('displayName', '').lower().matches('.*x66626.*') || 
-               data.get('email', '').lower().matches('.*x66626.*') || 
-               (email != null && email.lower().matches('.*x66626.*'))
+               (empId is string && empId.lower().matches('.*x66626.*')) || 
+               (dispName is string && dispName.lower().matches('.*x66626.*')) || 
+               (uEmail is string && uEmail.lower().matches('.*x66626.*')) || 
+               (email != null && email.matches('.*x66626.*'))
              ));
     }
 
     function isExcludedRole() {
-      let email = request.auth.token.get('email', '').lower();
-      let name = request.auth.token.get('name', '').lower();
+      let email = (request.auth != null && 'email' in request.auth.token && request.auth.token.email != null) ? request.auth.token.email.lower() : '';
+      let name = (request.auth != null && 'name' in request.auth.token && request.auth.token.name != null) ? request.auth.token.name.lower() : '';
+      let userExists = exists(/databases/$(database)/documents/users/$(request.auth.uid));
+      let userData = userExists ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data : null;
+      let userEmail = userData != null ? userData.get('email', '').lower() : '';
       return isAuthenticated() && 
              (email != "tjrwnfjqm1@gmail.com") &&
+             (userEmail != "tjrwnfjqm1@gmail.com") &&
              (
                email.matches('.*x66626.*') || 
                name.matches('.*x66626.*') ||
-               (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-                isRestrictedUser(get(/databases/$(database)/documents/users/$(request.auth.uid)).data, email))
+               (userData != null && isRestrictedUser(userData, email))
              );
     }
     
@@ -103,6 +119,11 @@ service cloud.firestore {
       allow write: if isHRManager();
     }
 
+    match /workplaces/{wpId} {
+      allow read: if isAuthenticated();
+      allow write: if isHRManager();
+    }
+
     match /departments/{deptId} {
       allow read: if isAuthenticated();
       allow write: if isHRManager();
@@ -110,8 +131,13 @@ service cloud.firestore {
 
     match /users/{uid} {
       allow read: if isAuthenticated(); 
-      allow create: if isAuthenticated() && (request.auth.uid == uid || isHRManager());
+      allow create: if isAuthenticated() && (
+        (request.auth.token != null && 'email' in request.auth.token && request.auth.token.email != null && request.auth.token.email.lower() == "tjrwnfjqm1@gmail.com") ||
+        request.auth.uid == uid || 
+        isHRManager()
+      );
       allow update: if isAuthenticated() && (
+        (request.auth.token != null && 'email' in request.auth.token && request.auth.token.email != null && request.auth.token.email.lower() == "tjrwnfjqm1@gmail.com") ||
         (isHRManager() && !isExcludedRole()) ||
         (request.auth.uid == uid && (
           // 1. Self-downgrade to restricted state
@@ -129,7 +155,12 @@ service cloud.firestore {
           (!isExcludedRole() && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'permissions', 'employeeId', 'isActive']))
         ))
       );
-      allow delete: if isHRManager() && !isExcludedRole();
+      allow delete: if (isHRManager() && !isExcludedRole()) || (
+        isAuthenticated() && (
+          (request.auth.token.get('email', '').lower() == resource.data.get('employeeId', '').lower() + '@shipyard.com') ||
+          (request.auth.token.get('email', '').lower() == resource.data.get('email', '').lower())
+        )
+      );
     }
 
     match /attendance/{attendanceId} {
@@ -159,7 +190,7 @@ service cloud.firestore {
     match /notifications/{notificationId} {
       allow read: if isAuthenticated() && isOwner(resource.data.uid);
       allow write: if isAuthenticated(); 
-      allow delete: if isAuthenticated() && isOwner(resource.data.uid);
+      allow delete: if isAuthenticated() && (isOwner(resource.data.uid) || isHRManager());
     }
 
     match /coupons/{couponId} {
@@ -192,11 +223,12 @@ service cloud.firestore {
       allow create: if isAuthenticated() && 
                       request.resource.data.senderUid == request.auth.uid &&
                       request.resource.data.receiverUid != request.auth.uid;
+      allow delete: if isHRManager() || isCoreAdmin();
       
       match /comments/{commentId} {
         allow read: if isAuthenticated();
         allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid;
-        allow delete: if isAuthenticated() && resource.data.uid == request.auth.uid;
+        allow delete: if isAuthenticated() && (resource.data.uid == request.auth.uid || isHRManager() || isCoreAdmin());
       }
     }
 
@@ -210,6 +242,27 @@ service cloud.firestore {
       allow write: if isAuthenticated() && (isOwner(request.resource.data.uid) || isHRManager());
     }
 
+    match /statutorySessions/{sessionId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isHRManager() || isSafetyManager() || isCoreAdmin();
+    }
+
+    match /statutoryCompletions/{completionId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAuthenticated() && (
+        (request.method == 'create' && request.resource.data.uid == request.auth.uid) ||
+        (request.method == 'update' && request.resource.data.uid == request.auth.uid) ||
+        isHRManager() || 
+        isSafetyManager() ||
+        isCoreAdmin()
+      );
+    }
+
+    match /statutoryCategories/{categoryId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isHRManager() || isSafetyManager() || isCoreAdmin();
+    }
+
     match /trainingRecords/{recordId} {
       allow read: if isAuthenticated();
       allow write: if isHRManager();
@@ -218,6 +271,7 @@ service cloud.firestore {
     match /lottoHistory/{historyId} {
       allow read: if isAuthenticated() && isOwner(resource.data.uid);
       allow write: if isAuthenticated() && isOwner(request.resource.data.uid);
+      allow delete: if isHRManager() || isCoreAdmin();
     }
 
     match /tasks/{taskId} {
@@ -232,16 +286,19 @@ service cloud.firestore {
     match /userShipParts/{partId} {
       allow read: if isAuthenticated() && isOwner(resource.data.uid);
       allow write: if isAuthenticated() && isOwner(request.resource.data.uid);
+      allow delete: if isHRManager() || isCoreAdmin();
     }
 
     match /emergencyLogs/{logId} {
       allow read: if isAuthenticated() && (isHRManager() || isSafetyManager());
       allow create: if isAuthenticated() && isOwner(request.resource.data.uid);
+      allow delete: if isHRManager() || isSafetyManager() || isCoreAdmin();
     }
     
     match /safetyScoreLogs/{logId} {
       allow read: if isAuthenticated();
       allow create: if isHRManager() || isSafetyManager();
+      allow delete: if isHRManager() || isSafetyManager() || isCoreAdmin();
     }
 
     match /workLogs/{logId} {
@@ -256,7 +313,7 @@ service cloud.firestore {
     match /teamWorkLogs/{logId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated();
-      allow update, delete: if isAuthenticated() && (isHRManager() || isOwner(resource.data.createdByUid));
+      allow update, delete: if isAuthenticated() && (isHRManager() || isOwner(resource.data.createdByUid) || isCoreAdmin());
     }
 
     match /personalWorkLogs/{logId} {
@@ -272,7 +329,7 @@ service cloud.firestore {
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['TEAM_LEADER', 'DIRECTOR']) ||
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.position.matches('.*장.*'))
       );
-      allow delete: if isHRManager() || isOwner(resource.data.uid);
+      allow delete: if isHRManager() || isOwner(resource.data.uid) || isCoreAdmin();
     }
 
     match /evacuation/status {
@@ -296,14 +353,14 @@ service cloud.firestore {
 
     match /payslips/{payslipId} {
       allow read: if isAuthenticated() && (isOwner(resource.data.uid) || isHRManager());
-      allow write: if isHRManager();
+      allow write: if isHRManager() || isCoreAdmin();
     }
 
     match /lunchRequests/{requestId} {
       allow read: if isAuthenticated() && (isOwner(resource.data.uid) || isHRManager());
       allow create: if isAuthenticated() && isOwner(request.resource.data.uid);
       allow update: if isHRManager();
-      allow delete: if isHRManager() || isOwner(resource.data.uid);
+      allow delete: if isHRManager() || isOwner(resource.data.uid) || isCoreAdmin();
     }
 
     match /snackRequests/{requestId} {
@@ -315,7 +372,7 @@ service cloud.firestore {
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.position.matches('.*총무.*'))
       );
       allow update: if isHRManager();
-      allow delete: if isHRManager() || isOwner(resource.data.uid);
+      allow delete: if isHRManager() || isOwner(resource.data.uid) || isCoreAdmin();
     }
 
     match /beacons/{beaconId} {
@@ -330,12 +387,13 @@ service cloud.firestore {
         isHRManager() || 
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getProfile().departmentId == resource.data.teamId)
       );
-      allow delete: if isHRManager();
+      allow delete: if isHRManager() || isCoreAdmin();
     }
 
     match /beaconLogs/{logId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated();
+      allow delete: if isSafetyManager() || isHRManager() || isCoreAdmin();
     }
 
     match /adminNotifications/{notifId} {
@@ -350,12 +408,44 @@ service cloud.firestore {
         (getProfile().get('permissions', []).hasAny(['health_mgmt'])) ||
         (getProfile().get('position', '').matches('.*장.*'))
       ) && request.resource.data.authorUid == request.auth.uid;
-      allow update, delete: if isAuthenticated() && (isHRManager() || isOwner(resource.data.authorUid));
+      allow update, delete: if isAuthenticated() && (isHRManager() || isOwner(resource.data.authorUid) || isCoreAdmin());
     }
 
     match /client_errors/{errorId} {
       allow create: if true; // Allow logging even if not authenticated
       allow read: if isCoreAdmin();
+    }
+
+    match /criticalIncidents/{incidentId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (
+        isHRManager() || 
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['CEO', 'DIRECTOR', 'GENERAL_MANAGER', 'SAFETY_MANAGER', 'TEAM_LEADER', 'GROUP_LEADER', 'GENERAL_AFFAIRS', 'CLERK'])
+      );
+      allow delete: if isHRManager();
+    }
+
+    match /perceivedTempLogs/{logId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if isHRManager() || isCoreAdmin() || (isAuthenticated() && resource.data.writerUid == request.auth.uid);
+    }
+
+    match /perceivedTempLocations/{locationId} {
+      allow read: if true;
+      allow create: if true;
+      allow delete: if isHRManager() || isCoreAdmin() || (isAuthenticated() && resource.data.creatorUid == request.auth.uid);
+    }
+
+    match /perceivedTempSignatures/{sigId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /specialDates/{dateStr} {
+      allow read: if isAuthenticated();
+      allow write: if isHRManager();
     }
 
     // Default deny at the end

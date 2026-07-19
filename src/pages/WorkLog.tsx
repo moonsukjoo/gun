@@ -18,9 +18,15 @@ import {
   Trash2, 
   FileText,
   Loader2,
-  Table as TableIcon
+  Table as TableIcon,
+  Signature as SignatureIcon,
+  Check
 } from 'lucide-react';
 import { TeamWorkLog, WorkLogEntry, UserProfile } from '@/types';
+import SignatureCanvas from 'react-signature-canvas';
+import { cn } from '@/lib/utils';
+import { motion, AnimatePresence } from 'motion/react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 
 export const WorkLog: React.FC = () => {
   const { profile } = useAuth();
@@ -32,6 +38,60 @@ export const WorkLog: React.FC = () => {
   const [entries, setEntries] = useState<WorkLogEntry[]>([]);
   const [teamName, setTeamName] = useState('');
   const [previousLog, setPreviousLog] = useState<TeamWorkLog | null>(null);
+
+  const [supervisorSignUrl, setSupervisorSignUrl] = useState('');
+  const [isSignOpen, setIsSignOpen] = useState(false);
+  const sigPad = useRef<SignatureCanvas>(null);
+  const [justSigned, setJustSigned] = useState(false);
+
+  // Safely patch SignaturePad prototype through the active SignatureCanvas instance when dialog is opened
+  useEffect(() => {
+    if (isSignOpen) {
+      const timer = setTimeout(() => {
+        try {
+          const sigCanvasInstance = sigPad.current;
+          if (sigCanvasInstance) {
+            const pad = (sigCanvasInstance as any).getSignaturePad?.() || (sigCanvasInstance as any)._sigPad;
+            if (pad) {
+              const padProto = Object.getPrototypeOf(pad);
+              if (padProto) {
+                // Patch _strokeEnd
+                if (padProto._strokeEnd && !padProto._strokeEnd.__isPatched) {
+                  const originalStrokeEnd = padProto._strokeEnd;
+                  padProto._strokeEnd = function(event: any) {
+                    if (!this._activeStroke) {
+                      console.warn("SignaturePad: touch end occurred but no active stroke found. Crash prevented.");
+                      return;
+                    }
+                    originalStrokeEnd.call(this, event);
+                  };
+                  padProto._strokeEnd.__isPatched = true;
+                  console.log("Successfully patched _strokeEnd on SignaturePad prototype dynamically!");
+                }
+
+                // Patch _strokeUpdate
+                if (padProto._strokeUpdate && !padProto._strokeUpdate.__isPatched) {
+                  const originalStrokeUpdate = padProto._strokeUpdate;
+                  padProto._strokeUpdate = function(event: any) {
+                    if (!this._activeStroke) {
+                      console.warn("SignaturePad: touch move occurred but no active stroke found. Crash prevented.");
+                      return;
+                    }
+                    originalStrokeUpdate.call(this, event);
+                  };
+                  padProto._strokeUpdate.__isPatched = true;
+                  console.log("Successfully patched _strokeUpdate on SignaturePad prototype dynamically!");
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.warn("Error patching signature pad prototype dynamically:", err);
+        }
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [isSignOpen]);
 
   useEffect(() => {
     if (profile) {
@@ -171,6 +231,26 @@ export const WorkLog: React.FC = () => {
     toast.success('첫 번째 인원의 작업 내용이 모두에게 적용되었습니다.');
   };
 
+  const handleSignSave = () => {
+    if (sigPad.current) {
+      if (sigPad.current.isEmpty()) {
+        toast.error('서명을 작성해주세요.');
+        return;
+      }
+      const dataUrl = sigPad.current.toDataURL();
+      setSupervisorSignUrl(dataUrl);
+
+      // Trigger smooth Framer Motion checkmark feedback
+      setJustSigned(true);
+      setTimeout(() => {
+        setJustSigned(false);
+      }, 3000);
+
+      setIsSignOpen(false);
+      toast.success('관리감독자 서명이 승인되었습니다!');
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!profile) return;
@@ -181,6 +261,11 @@ export const WorkLog: React.FC = () => {
       return;
     }
 
+    if (!supervisorSignUrl) {
+      toast.error('관리감독자 서명을 완료해주세요.');
+      return;
+    }
+
     setLoading(true);
     try {
       await addDoc(collection(db, 'teamWorkLogs'), {
@@ -188,6 +273,7 @@ export const WorkLog: React.FC = () => {
         teamName: teamName || profile.departmentName || '미지정',
         date: logDate,
         entries: validEntries,
+        supervisorSignUrl,
         createdAt: new Date().toISOString(),
         createdByUid: profile.uid,
         createdByUserName: profile.displayName
@@ -395,6 +481,49 @@ export const WorkLog: React.FC = () => {
           </div>
       </Card>
 
+      {/* 관리감독자 승인 및 서명란 */}
+      <Card className="bg-card border border-border rounded-3xl overflow-hidden p-6 shadow-lg">
+        <label className="text-xs font-black text-muted-foreground uppercase tracking-widest ml-1">관리감독자 확인 서명</label>
+        <div className="mt-3">
+          <div 
+            id="supervisor-signature-trigger-box"
+            className={cn(
+              "relative h-28 bg-muted/20 border border-dashed border-border rounded-2xl flex items-center justify-center cursor-pointer hover:bg-muted/30 transition-all overflow-hidden"
+            )}
+            onClick={() => setIsSignOpen(true)}
+          >
+            {supervisorSignUrl ? (
+               <div className="relative w-full h-full flex items-center justify-center">
+                 <img src={supervisorSignUrl} className="h-full object-contain mix-blend-multiply dark:mix-blend-normal" alt="supervisor-signature" />
+                 <div className="absolute bottom-2 right-2 bg-emerald-500 text-white rounded-full p-1 shadow-md shadow-emerald-500/30">
+                   <Check className="w-3.5 h-3.5" strokeWidth={4} />
+                 </div>
+
+                 <AnimatePresence>
+                   {justSigned && (
+                     <motion.div 
+                       initial={{ opacity: 0, scale: 0.6 }}
+                       animate={{ opacity: 1, scale: 1 }}
+                       exit={{ opacity: 0, scale: 0.8 }}
+                       className="absolute inset-0 bg-emerald-500/95 flex flex-col items-center justify-center rounded-2xl z-10 pointer-events-none text-white"
+                       transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+                     >
+                       <Check className="w-8 h-8 text-white" strokeWidth={4} />
+                       <span className="font-black tracking-widest text-white/95 uppercase mt-1 text-sm">관리감독자 서명 완료</span>
+                     </motion.div>
+                   )}
+                 </AnimatePresence>
+               </div>
+            ) : (
+               <div className="flex flex-col items-center justify-center gap-1.5 select-none">
+                 <SignatureIcon className="w-6 h-6 text-muted-foreground/30 animate-pulse" />
+                 <span className="text-xs font-black text-muted-foreground/50">터치하여 관리감독자 디지털 서명 등록 (필수)</span>
+               </div>
+            )}
+          </div>
+        </div>
+      </Card>
+
       <div className="flex gap-4">
         <Button 
           onClick={handleSubmit}
@@ -437,6 +566,64 @@ export const WorkLog: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Signature Dialog */}
+      <Dialog open={isSignOpen} onOpenChange={setIsSignOpen}>
+        <DialogContent className="bg-card border border-border text-foreground max-w-sm rounded-3xl p-6">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-black text-foreground flex items-center gap-2">
+              <SignatureIcon className="w-5 h-5 text-primary" /> 관리감독자 승인 및 확인
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="py-4 space-y-3">
+            <p className="text-xs text-muted-foreground font-bold leading-normal">
+              캔버스 영역에 드래그하거나 터치로 본 관리감독자 확인 서명을 완성해 주세요.
+            </p>
+            <div className="border border-border/80 rounded-2xl overflow-hidden bg-white">
+              <SignatureCanvas
+                ref={sigPad}
+                penColor="black"
+                canvasProps={{
+                  className: "w-full h-40 cursor-crosshair bg-white"
+                }}
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="flex flex-row justify-end gap-2 p-0">
+            <Button 
+              type="button" 
+              variant="ghost" 
+              onClick={() => {
+                if (sigPad.current) {
+                  sigPad.current.clear();
+                }
+              }} 
+              className="rounded-xl font-bold bg-muted"
+            >
+              초기화
+            </Button>
+            <div className="flex gap-2">
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={() => setIsSignOpen(false)} 
+                className="rounded-xl font-bold"
+              >
+                취소
+              </Button>
+              <Button 
+                type="button" 
+                onClick={handleSignSave} 
+                className="bg-primary hover:bg-primary/95 text-white font-black rounded-xl px-4"
+              >
+                서명 완료
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

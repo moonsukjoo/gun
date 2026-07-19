@@ -48,44 +48,93 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const employeeId = namePrefix;
           const usersRef = collection(db, 'users');
 
-          // Check for manual profile recovery/migration every time at login
-          const syncPerformed = sessionStorage.getItem(`sync_${firebaseUser.uid}`);
-          if (!syncPerformed) {
-            try {
-              const possibleIds = [employeeId, employeeId.toUpperCase(), employeeId.toLowerCase()];
-              const qSync = query(usersRef, where('employeeId', 'in', [...new Set(possibleIds)]));
-              const syncSnapshot = await getDocs(qSync);
-              
-              let manualProfileData: any = null;
-              let manualDocId: string | null = null;
-              
-              syncSnapshot.docs.forEach(d => {
-                if (d.id !== firebaseUser.uid) {
-                  const data = d.data();
-                  if (!manualProfileData || data.role !== 'EMPLOYEE') {
-                    manualProfileData = data;
-                    manualDocId = d.id;
-                  }
+          // 1. Process profile migration/merging BEFORE setting up any snapshot listeners to avoid duplicate profiles
+          try {
+            const possibleIds = [employeeId, employeeId.toUpperCase(), employeeId.toLowerCase()];
+            const cleanedEmail = email.trim().toLowerCase();
+            
+            // Map to gather matching docs to merge
+            const matchedDocsMap = new Map<string, any>();
+            
+            // Query A: by employeeId
+            const qIds = query(usersRef, where('employeeId', 'in', [...new Set(possibleIds)]));
+            const idSnapshot = await getDocs(qIds);
+            idSnapshot.docs.forEach(doc => {
+              if (doc.id !== firebaseUser.uid) {
+                matchedDocsMap.set(doc.id, { id: doc.id, data: doc.data() });
+              }
+            });
+
+            // Query B: by email (if valid)
+            if (cleanedEmail && !cleanedEmail.includes('anonymous')) {
+              const qEmails = query(usersRef, where('email', '==', cleanedEmail));
+              const emailSnapshot = await getDocs(qEmails);
+              emailSnapshot.docs.forEach(doc => {
+                if (doc.id !== firebaseUser.uid) {
+                  matchedDocsMap.set(doc.id, { id: doc.id, data: doc.data() });
                 }
               });
-
-              if (manualDocId && manualProfileData) {
-                const migratedProfile = {
-                  ...manualProfileData,
-                  uid: firebaseUser.uid,
-                  email: email
-                };
-                await setDoc(doc(db, 'users', firebaseUser.uid), migratedProfile);
-                await deleteDoc(doc(db, 'users', manualDocId));
-                sessionStorage.setItem(`sync_${firebaseUser.uid}`, 'true');
-                toast.success('임직원 정보가 동기화되었습니다.');
-              }
-            } catch (err) {
-              console.warn("Profile sync error:", err);
+              
+              const qEmailsRaw = query(usersRef, where('email', '==', email.trim()));
+              const emailSnapshotRaw = await getDocs(qEmailsRaw);
+              emailSnapshotRaw.docs.forEach(doc => {
+                if (doc.id !== firebaseUser.uid) {
+                  matchedDocsMap.set(doc.id, { id: doc.id, data: doc.data() });
+                }
+              });
             }
+
+            // Sync/Merge matched manual profiles with the native Auth account
+            if (matchedDocsMap.size > 0) {
+              let bestManualDocId: string | null = null;
+              let bestProfileData: any = null;
+
+              for (const [docId, item] of matchedDocsMap.entries()) {
+                if (!bestProfileData) {
+                  bestProfileData = item.data;
+                  bestManualDocId = docId;
+                } else {
+                  // Prefer profile with more populated fields or role not EMPLOYEE
+                  const currLen = Object.keys(item.data).length;
+                  const bestLen = Object.keys(bestProfileData).length;
+                  if (currLen > bestLen || item.data.role !== 'EMPLOYEE') {
+                    bestProfileData = item.data;
+                    bestManualDocId = docId;
+                  }
+                }
+              }
+
+              if (bestManualDocId && bestProfileData) {
+                const currentDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+                const currentData = currentDoc.exists() ? currentDoc.data() : {};
+
+                const migratedProfile = {
+                  ...bestProfileData,
+                  ...currentData, // Keep auth-specific fields if any already exist
+                  uid: firebaseUser.uid,
+                  email: email || bestProfileData.email || '',
+                  employeeId: bestProfileData.employeeId || employeeId,
+                  displayName: currentData.displayName || bestProfileData.displayName || firebaseUser.displayName || employeeId.toUpperCase(),
+                  isActive: true,
+                  updatedAt: new Date().toISOString()
+                };
+
+                // Save to the auth uid location
+                await setDoc(doc(db, 'users', firebaseUser.uid), migratedProfile);
+                
+                // Keep the DB clean by deleting the old duplicate entries
+                for (const docId of matchedDocsMap.keys()) {
+                  await deleteDoc(doc(db, 'users', docId));
+                }
+                
+                toast.success('기존 등록된 임직원 정보가 온전하게 연동 및 병합되었습니다.');
+              }
+            }
+          } catch (syncErr) {
+            console.error("Critical Profile Sync Error:", syncErr);
           }
 
-          // Use onSnapshot for real-time profile updates
+          // 2. Start the onSnapshot listener only after merging is completed
           unsubscribeProfile = onSnapshot(doc(db, 'users', firebaseUser.uid), async (snapshot) => {
             clearTimeout(initTimeout); // Profile found or created, clear the guard
             try {
@@ -131,6 +180,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   status: 'ACTIVE',
                   joinedAt: new Date().toISOString(),
                   kudosCount: 0,
+                  annualLeaveBalance: 15,
                 };
                 await setDoc(doc(db, 'users', firebaseUser.uid), newProfile).catch(() => {});
                 setProfile(newProfile);

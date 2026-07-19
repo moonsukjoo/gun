@@ -16,7 +16,8 @@ import {
   Lock,
   HardHat,
   CircleDollarSign,
-  Radio
+  Radio,
+  Thermometer
 } from 'lucide-react';
 import { collection, query, getDocs, limit, orderBy } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
@@ -54,7 +55,7 @@ const PCAdminDashboard: React.FC = () => {
 
   const quickActions = [
     { id: 'personnel', label: '임직원 정보 관리', icon: Users, to: '/admin/pc/personnel' },
-    { id: 'permissions', label: '사용자 권한 관리', icon: Lock, to: '/pc-admin/personnel' }, // Assuming the personnel page handles roles/permissions
+    { id: 'permissions', label: '사용자 권한 관리', icon: Lock, to: '/admin/pc/personnel' }, // Assuming the personnel page handles roles/permissions
     { id: 'attendance', label: '근태 현황 총괄', icon: Clock, to: '/admin/pc/attendance' },
     { id: 'leave', label: '연차/휴가 결재', icon: CalendarDays, to: '/admin/pc/leave' },
     { id: 'payslip', label: '급여명세서 발행', icon: CircleDollarSign, to: '/admin/pc/payslip' },
@@ -62,6 +63,7 @@ const PCAdminDashboard: React.FC = () => {
     { id: 'worklog', label: '작업일지 총괄', icon: ClipboardList, to: '/admin/pc/worklog' },
     { id: 'training', label: '교육/평가 현황', icon: HardHat, to: '/admin/pc/training' },
     { id: 'beacons', label: '밀폐공간 관제', icon: Radio, to: '/admin/pc/beacons' },
+    { id: 'perceived_temp_mgmt', label: '실시간 체감온도 관제', icon: Thermometer, to: '/admin/pc/perceived-temp' },
   ];
 
   const handleExportStats = async () => {
@@ -180,6 +182,59 @@ const PCAdminDashboard: React.FC = () => {
                 </div>
               </div>
               <ShieldCheck className="absolute -right-20 -bottom-20 w-96 h-96 text-primary/[0.03] rotate-12" />
+            </div>
+
+            {/* NEW ADDITION: Submarine Air Quality Environmental Safety Telemetry Desk */}
+            <div className="bg-slate-950 border border-border/60 rounded-[3rem] p-10 text-slate-100 relative overflow-hidden shadow-2xl">
+              <div className="absolute top-0 right-0 w-80 h-80 bg-blue-500/5 rounded-full blur-3xl pointer-events-none" />
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-white/5 pb-8 mb-8 z-10 relative">
+                <div>
+                  <span className="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em] bg-blue-500/10 px-3 py-1 rounded-full mb-3 inline-block">
+                    무선 정밀 환경 계측국 (S-Telemetry)
+                  </span>
+                  <h3 className="text-2xl font-black text-white flex items-center gap-3 tracking-tight">
+                    <Radio className="w-6 h-6 text-blue-400 animate-pulse" />
+                    잠수함 건조 구역 대기질 환경 센서 현황
+                  </h3>
+                  <p className="text-slate-400 font-bold text-sm mt-1">
+                    밀폐공간 내 무선 복합 가스 측정기로부터 송출되는 실시간 환경 수치입니다. (surveillance-free)
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-ping" />
+                  <span className="text-xs font-black text-emerald-400 tracking-wider">주변 기류 정밀 분석 수신 중</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6 z-10 relative">
+                {[
+                  { name: 'O2 (산소 농도)', val: '20.9', unit: '%', desc: '밀폐공간 질식 방지 권장 기준: 18% ~ 23.5%', status: '정상', color: 'from-blue-500 to-indigo-500', barCol: 'bg-blue-500', max: 25 },
+                  { name: 'CO (일산화탄소)', val: '1.2', unit: 'ppm', desc: '허용 노출 연한 기준: 30 ppm 이하', status: '정상', color: 'from-emerald-500 to-teal-500', barCol: 'bg-emerald-500', max: 50 },
+                  { name: 'H2S (황화수소)', val: '0.0', unit: 'ppm', desc: '밀폐구조 위험 독성물질 통제 허용치: 10 ppm', status: '정상', color: 'from-amber-500 to-orange-500', barCol: 'bg-amber-500', max: 10 },
+                  { name: 'LEL (가연성 가스)', val: '0', unit: '%', desc: '폭발 하한 기준 안전 감도: 10% 미만', status: '정상', color: 'from-rose-500 to-red-500', barCol: 'bg-rose-500', max: 15 }
+                ].map((gas, sidx) => (
+                  <div key={sidx} className="bg-slate-900/60 p-6 rounded-[2rem] border border-white/5 shadow-sm hover:bg-slate-900 transition-all flex flex-col justify-between">
+                    <div>
+                      <div className="flex justify-between items-center mb-4">
+                        <span className="text-xs font-black text-slate-400 uppercase tracking-wider">{gas.name}</span>
+                        <span className="text-[10px] font-black text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md">
+                          {gas.status}
+                        </span>
+                      </div>
+                      <div className="flex items-baseline gap-1 mt-2">
+                        <span className="text-4xl font-black text-white font-mono tracking-tighter">{gas.val}</span>
+                        <span className="text-xs font-bold text-slate-400">{gas.unit}</span>
+                      </div>
+                    </div>
+                    <div className="mt-6 space-y-3">
+                      <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                        <div className={`h-full ${gas.barCol}`} style={{ width: `${Math.min(100, (parseFloat(gas.val) / gas.max) * 100)}%` }} />
+                      </div>
+                      <p className="text-[10px] font-bold text-slate-400/60 leading-relaxed font-sans">{gas.desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 

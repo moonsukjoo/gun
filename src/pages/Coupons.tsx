@@ -90,7 +90,7 @@ export const Coupons: React.FC = () => {
     const unsubscribeHistory = onSnapshot(
       collection(db, 'praiseCoupons'), 
       (snapshot) => {
-        const history = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PraiseCoupon));
+        const history = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as PraiseCoupon));
         setCouponHistory(history.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
         setHistoryLoading(false);
       },
